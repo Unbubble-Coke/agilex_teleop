@@ -12,15 +12,8 @@ from typing import Optional, List
 import sys, os
 import pdb
 
-# ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "."))
-# sys.path.insert(0, ROOT_DIR)
-
-# ROOT_DIR = os.path.abspath(os.path.dirname(__file__))
-# if ROOT_DIR not in sys.path:
-#     sys.path.insert(0, ROOT_DIR)
-
-from nero.kinematics.analytic_IK_solver import Solver
-from nero.kinematics.nero_kinematics.nero_ik.ik_solver import fk
+from nero.kinematics.analytic_IK_solver import Pinocchio_Solver
+# from nero.kinematics.nero_kinematics.nero_ik.ik_solver import fk
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +33,12 @@ class NeroDualArmServer:
     
     def __init__(self, gripper_enabled: bool = True):
         self.gripper_enabled = gripper_enabled
+        # Initialize IK handles early: go_home may run before IK setup completes.
+        self.left_ik_solver = None
+        self.right_ik_solver = None
+        # Must exist before _setup_gripper triggers *_gripper_goto calls.
+        self._last_left_gripper_cmd = None
+        self._last_right_gripper_cmd = None
 
         # Initialize left arm
         self.left_robot = None
@@ -60,8 +59,6 @@ class NeroDualArmServer:
             # 清除底层错误状态（防止之前卡在透传或急停模式）
             self.left_robot.set_normal_mode()
             time.sleep(0.3)
-            self.left_robot.disable()
-            time.sleep(0.5)
 
             # Enable all joints
             start_t = time.monotonic()
@@ -95,8 +92,6 @@ class NeroDualArmServer:
             # 清除底层错误状态（防止之前卡在透传或急停模式）
             self.right_robot.set_normal_mode()
             time.sleep(0.3)
-            self.right_robot.disable()
-            time.sleep(0.5)
 
             # Enable all joints
             start_t = time.monotonic()
@@ -119,14 +114,14 @@ class NeroDualArmServer:
         if gripper_enabled:
             try:
                 if self.left_gripper is not None:
-                    self._setup_gripper(self.left_gripper)
+                    self._setup_gripper(self.left_gripper, "left")
                     log.info("[SERVER] Left gripper initialized")
             except Exception as e:
                 log.error(f"[SERVER] Failed to setup left gripper: {e}")
         
             try:
                 if self.right_gripper is not None:
-                    self._setup_gripper(self.right_gripper)
+                    self._setup_gripper(self.right_gripper, "right")
                     log.info("[SERVER] Right gripper initialized")
             except Exception as e:
                 log.error(f"[SERVER] Failed to setup right gripper: {e}")
@@ -136,8 +131,6 @@ class NeroDualArmServer:
             log.info("=" * 50)
 
         # Initialize IK solver
-        self.left_ik_solver = None
-        self.right_ik_solver = None
         # Keep server-side IK timestep aligned with teleop action send rate.
         self.track_freq = 50.0
         self.dt = 1.0 / self.track_freq
@@ -160,16 +153,16 @@ class NeroDualArmServer:
         # High-frequency stdout printing can introduce control-loop jitter.
         self.enable_servo_timing_print = False
         self.servo_timing_print_every_n = 50
-        # Cache last gripper command to suppress redundant no-op writes.
-        self._last_left_gripper_cmd = None
-        self._last_right_gripper_cmd = None
         # servo_p 开环控制记录的当前位姿
         self.left_cur_pose = None
         self.right_cur_pose = None
+        self.ik_urdf_path = os.getenv("NERO_URDF_PATH")
 
         try:
-            self.left_ik_solver = self._setup_ik_solver(self.left_robot, self.left_cfg, "Left Arm")
-            self.right_ik_solver = self._setup_ik_solver(self.right_robot, self.right_cfg, "Right Arm")
+            if self.left_robot is not None and hasattr(self, "left_cfg"):
+                self.left_ik_solver = self._setup_ik_solver(self.left_robot, self.left_cfg, "Left Arm")
+            if self.right_robot is not None and hasattr(self, "right_cfg"):
+                self.right_ik_solver = self._setup_ik_solver(self.right_robot, self.right_cfg, "Right Arm")
         except Exception as e:
             log.error(f"[SERVER] IK solvers init failed: {e}")
 
@@ -462,10 +455,11 @@ class NeroDualArmServer:
                 
                 if current_joints is not None:
                     q_current = np.array(current_joints, dtype=float)
-                    T_fk = fk(q_current, self.left_ik_solver.nero_params)
-                    fk_xyz = np.asarray(T_fk[:3, 3], dtype=float)
-                    fk_rpy = np.asarray(rot_to_rpy(T_fk[:3, :3].tolist()), dtype=float)
-                    self.left_cur_pose = np.concatenate([fk_xyz, fk_rpy])
+                    # T_fk = fk(q_current, self.left_ik_solver.nero_params)
+                    # fk_xyz = np.asarray(T_fk[:3, 3], dtype=float)
+                    # fk_rpy = np.asarray(rot_to_rpy(T_fk[:3, :3].tolist()), dtype=float)
+                    # self.left_cur_pose = np.concatenate([fk_xyz, fk_rpy])
+                    self.left_cur_pose = self.left_ik_solver.fk_pose(q_current)
                     log.info(f"[left_robot_go_home] Updated left_cur_pose: {self.left_cur_pose}")
                     
                     # ⚠️ 关键：同步 IK solver 状态
@@ -536,10 +530,11 @@ class NeroDualArmServer:
                 
                 if current_joints is not None:
                     q_current = np.array(current_joints, dtype=float)
-                    T_fk = fk(q_current, self.right_ik_solver.nero_params)
-                    fk_xyz = np.asarray(T_fk[:3, 3], dtype=float)
-                    fk_rpy = np.asarray(rot_to_rpy(T_fk[:3, :3].tolist()), dtype=float)
-                    self.right_cur_pose = np.concatenate([fk_xyz, fk_rpy])
+                    # T_fk = fk(q_current, self.right_ik_solver.nero_params)
+                    # fk_xyz = np.asarray(T_fk[:3, 3], dtype=float)
+                    # fk_rpy = np.asarray(rot_to_rpy(T_fk[:3, :3].tolist()), dtype=float)
+                    # self.right_cur_pose = np.concatenate([fk_xyz, fk_rpy])
+                    self.right_cur_pose = self.right_ik_solver.fk_pose(q_current)
                     log.info(f"[right_robot_go_home] Updated right_cur_pose: {self.right_cur_pose}")
                     
                     # ⚠️ 关键：同步 IK solver 状态
@@ -729,10 +724,10 @@ class NeroDualArmServer:
                 # 而不是用实际关节角 q_current，保证 IK 求解的连续性
                 # 参考 test_pos_flw_ik.py 的做法
                 q_for_fk = ik_solver.state.q_prev
-                T_fk = fk(q_for_fk, ik_solver.nero_params)
-                fk_xyz = np.asarray(T_fk[:3, 3], dtype=float)
-                fk_rpy = np.asarray(rot_to_rpy(T_fk[:3, :3].tolist()), dtype=float)
-                cur_pose = np.concatenate([fk_xyz, fk_rpy])
+                # fk_xyz = np.asarray(T_fk[:3, 3], dtype=float)
+                # fk_rpy = np.asarray(rot_to_rpy(T_fk[:3, :3].tolist()), dtype=float)
+                # cur_pose = np.concatenate([fk_xyz, fk_rpy])
+                cur_pose = np.asarray(ik_solver.fk_pose(q_for_fk), dtype=float)
                 
                 cur_xyz = np.asarray(cur_pose[:3], dtype=float)
                 cur_rpy = np.asarray(cur_pose[3:], dtype=float)
@@ -850,7 +845,7 @@ class NeroDualArmServer:
             bool: 成功返回 True，失败返回 False
         """
         try:
-            from pyAgxArm.utiles.tf import rot_to_rpy, euler_convert_quat, quat_convert_euler
+            from pyAgxArm.utiles.tf import euler_convert_quat, quat_convert_euler
             # 1. 选择 robot & IK
             if robot_arm == "left_robot":
                 robot = self.left_robot
@@ -885,10 +880,9 @@ class NeroDualArmServer:
                 pose = self._limit_pose_delta(pose)
                 
                 # ⚠️ 开环控制：用 FK 计算当前位姿，避免累积误差
-                T_fk = fk(q_current, ik_solver.nero_params)
-                fk_xyz = np.asarray(T_fk[:3, 3], dtype=float)
-                fk_rpy = np.asarray(rot_to_rpy(T_fk[:3, :3].tolist()), dtype=float)
-                current_pose = np.concatenate([fk_xyz, fk_rpy])
+                current_pose = np.asarray(ik_solver.fk_pose(q_current), dtype=float)
+                fk_xyz = np.asarray(current_pose[:3], dtype=float)
+                fk_rpy = np.asarray(current_pose[3:], dtype=float)
 
                 log.debug("-------------------------------")
                 log.debug(f"FK当前位姿: {current_pose}")
@@ -975,11 +969,7 @@ class NeroDualArmServer:
             joint_limits.append((lo, hi))
 
         # 实例化解析 IK 求解器
-        ik_solver = Solver(
-            joint_limits=joint_limits,
-            dt=self.dt,
-            n_psi=181,
-        )
+        ik_solver = Pinocchio_Solver(joint_limits=joint_limits, dt=self.dt, n_psi=181)
 
         # 机器人的真实状态给 IK 求解器初始化
         ik_solver.init_state(current_joints)
@@ -1030,11 +1020,12 @@ class NeroDualArmServer:
                     log.info(f"[setup_gripper] [{gripper_name}] initial state: width={status.msg.width:.4f}m, force={status.msg.force:.2f}N, enabled={status.msg.foc_status.driver_enable_status}")
                 
 
-                log.info(f"[setup_gripper] Setting up left gripper...")
-                self.left_gripper_goto(0.0)
+                log.info(f"[setup_gripper] Setting up {gripper_name} gripper...")
+                goto = self.left_gripper_goto if gripper_name.lower().startswith("left") else self.right_gripper_goto
+                goto(0.0)
                 log.info(f"[setup_gripper] [{gripper_name}] closed (width=0.0)")
                 time.sleep(0.5)
-                self.left_gripper_goto(0.1)
+                goto(0.1)
                 log.info(f"[setup_gripper] [{gripper_name}] opened (width=0.1)")
                 time.sleep(0.5)
                 log.info(f"[setup_gripper] [{gripper_name}] setup completed")
