@@ -950,15 +950,15 @@ class NeroDualArmServer:
     
     # ==================== Inverse Kinematics ====================
 
-    def _setup_ik_solver(self, robot, cfg, name: str, timeout_sec: float = 2.0):
+    def _setup_ik_solver(self, robot, cfg, robot_name: str, timeout_sec: float = 2.0):
         """辅助方法：获取初始关节角，提取限位，并初始化 IK Solver"""
-        log.info(f"[{name}] 正在获取当前关节角作为 IK 初始基准...")
+        log.info(f"[{robot_name}] 正在获取当前关节角作为 IK 初始基准...")
         current_pose = None
         current_joints = None
         start_t = time.monotonic()
         while current_pose is None or current_joints is None:
             if time.monotonic() - start_t > timeout_sec:
-                log.warning(f"[{name}] get flange/joint pose timeout after {timeout_sec}s, using default pose")
+                log.warning(f"[{robot_name}] get flange/joint pose timeout after {timeout_sec}s, using default pose")
                 current_pose = [0.0] * 6
                 current_joints = [0.0] * 7
                 break
@@ -983,13 +983,13 @@ class NeroDualArmServer:
 
         # 机器人的真实状态给 IK 求解器初始化
         ik_solver.init_state(current_joints)
-        log.info(f"[{name}] IK Solver 初始化完成！初始关节角: {np.array(current_joints).round(3)}")
+        log.info(f"[{robot_name}] IK Solver 初始化完成！初始关节角: {np.array(current_joints).round(3)}")
         
         return ik_solver
     
     # ==================== Gripper (Placeholder) ====================
     
-    def _setup_gripper(self, gripper):
+    def _setup_gripper(self, gripper, gripper_name: str):
         """夹爪初始化：先合后张
         
         对每个夹爪执行：
@@ -1003,80 +1003,116 @@ class NeroDualArmServer:
             try:
                 log.info(f"[setup_gripper] Setting up gripper...")
 
-                if(gripper == self.left_gripper):
-
-                    # 检查夹爪通信状态
-                    if not self.left_gripper.is_ok():
-                        log.warning("[setup_gripper] Left gripper communication not ready, waiting...")
-                        for i in range(20):
-                            time.sleep(0.1)
-                            if self.left_gripper.is_ok():
-                                log.info(f"[setup_gripper] Left gripper communication ready after {i*0.1:.1f}s")
-                                break
-                        else:
-                            log.error("[setup_gripper] Left gripper communication timeout!")
-                            return
-                    
-                    # 等待夹爪状态反馈
-                    status = None
+                # 检查夹爪通信状态
+                if not gripper.is_ok():
+                    log.warning(f"[setup_gripper] [{gripper_name}] communication not ready, waiting...")
                     for i in range(20):
-                        status = self.left_gripper.get_gripper_status()
-                        if status is not None:
-                            log.info(f"[setup_gripper] Left gripper status received after {i*0.1:.1f}s")
-                            break
                         time.sleep(0.1)
-                    
-                    if status is None:
-                        log.warning("[setup_gripper] Left gripper status not available, continuing anyway...")
+                        if gripper.is_ok():
+                            log.info(f"[setup_gripper] [{gripper_name}] communication ready after {i*0.1:.1f}s")
+                            break
                     else:
-                        log.info(f"[setup_gripper] Left gripper initial state: width={status.msg.width:.4f}m, force={status.msg.force:.2f}N, enabled={status.msg.foc_status.driver_enable_status}")
-                    
-
-                    log.info(f"[setup_gripper] Setting up left gripper...")
-                    self.left_gripper_goto(0.0)
-                    log.info("[setup_gripper] Left gripper closed (width=0.0)")
-                    time.sleep(0.5)
-                    self.left_gripper_goto(0.1)
-                    log.info("[setup_gripper] Left gripper opened (width=0.1)")
-                    time.sleep(0.5)
-                    log.info("[setup_gripper] Left gripper setup completed")
+                        log.error(f"[setup_gripper] [{gripper_name}] communication timeout!")
+                        return
+                
+                # 等待夹爪状态反馈
+                status = None
+                for i in range(20):
+                    status = gripper.get_gripper_status()
+                    if status is not None:
+                        log.info(f"[setup_gripper] [{gripper_name}] status received after {i*0.1:.1f}s")
+                        break
+                    time.sleep(0.1)
+                
+                if status is None:
+                    log.warning(f"[setup_gripper] [{gripper_name}] status not available, continuing anyway...")
                 else:
-                    log.info(f"[setup_gripper] Setting up right gripper...")
+                    log.info(f"[setup_gripper] [{gripper_name}] initial state: width={status.msg.width:.4f}m, force={status.msg.force:.2f}N, enabled={status.msg.foc_status.driver_enable_status}")
+                
 
-                    # 检查夹爪通信状态
-                    if not self.left_gripper.is_ok():
-                        log.warning("[setup_gripper] Left gripper communication not ready, waiting...")
-                        for i in range(20):
-                            time.sleep(0.1)
-                            if self.left_gripper.is_ok():
-                                log.info(f"[setup_gripper] Left gripper communication ready after {i*0.1:.1f}s")
-                                break
-                        else:
-                            log.error("[setup_gripper] Left gripper communication timeout!")
-                            return
+                log.info(f"[setup_gripper] Setting up left gripper...")
+                self.left_gripper_goto(0.0)
+                log.info(f"[setup_gripper] [{gripper_name}] closed (width=0.0)")
+                time.sleep(0.5)
+                self.left_gripper_goto(0.1)
+                log.info(f"[setup_gripper] [{gripper_name}] opened (width=0.1)")
+                time.sleep(0.5)
+                log.info(f"[setup_gripper] [{gripper_name}] setup completed")
+
+                # if(gripper == self.left_gripper):
+
+                #     # 检查夹爪通信状态
+                #     if not self.left_gripper.is_ok():
+                #         log.warning("[setup_gripper] Left gripper communication not ready, waiting...")
+                #         for i in range(20):
+                #             time.sleep(0.1)
+                #             if self.left_gripper.is_ok():
+                #                 log.info(f"[setup_gripper] Left gripper communication ready after {i*0.1:.1f}s")
+                #                 break
+                #         else:
+                #             log.error("[setup_gripper] Left gripper communication timeout!")
+                #             return
                     
-                    # 等待夹爪状态反馈
-                    status = None
-                    for i in range(20):
-                        status = self.left_gripper.get_gripper_status()
-                        if status is not None:
-                            log.info(f"[setup_gripper] Left gripper status received after {i*0.1:.1f}s")
-                            break
-                        time.sleep(0.1)
+                #     # 等待夹爪状态反馈
+                #     status = None
+                #     for i in range(20):
+                #         status = self.left_gripper.get_gripper_status()
+                #         if status is not None:
+                #             log.info(f"[setup_gripper] Left gripper status received after {i*0.1:.1f}s")
+                #             break
+                #         time.sleep(0.1)
                     
-                    if status is None:
-                        log.warning("[setup_gripper] Left gripper status not available, continuing anyway...")
-                    else:
-                        log.info(f"[setup_gripper] Left gripper initial state: width={status.msg.width:.4f}m, force={status.msg.force:.2f}N, enabled={status.msg.foc_status.driver_enable_status}")
+                #     if status is None:
+                #         log.warning("[setup_gripper] Left gripper status not available, continuing anyway...")
+                #     else:
+                #         log.info(f"[setup_gripper] Left gripper initial state: width={status.msg.width:.4f}m, force={status.msg.force:.2f}N, enabled={status.msg.foc_status.driver_enable_status}")
                     
 
-                    self.right_gripper_goto(0.0)
-                    log.info("[setup_gripper] Right gripper closed (width=0.0)")
-                    time.sleep(0.5)
-                    self.right_gripper_goto(0.1)
-                    log.info("[setup_gripper] Right gripper opened (width=0.1)")
-                    time.sleep(0.5)
-                    log.info("[setup_gripper] Right gripper setup completed")
+                #     log.info(f"[setup_gripper] Setting up left gripper...")
+                #     self.left_gripper_goto(0.0)
+                #     log.info("[setup_gripper] Left gripper closed (width=0.0)")
+                #     time.sleep(0.5)
+                #     self.left_gripper_goto(0.1)
+                #     log.info("[setup_gripper] Left gripper opened (width=0.1)")
+                #     time.sleep(0.5)
+                #     log.info("[setup_gripper] Left gripper setup completed")
+                # else:
+                #     log.info(f"[setup_gripper] Setting up right gripper...")
+
+                #     # 检查夹爪通信状态
+                #     if not self.right_gripper.is_ok():
+                #         log.warning("[setup_gripper] Right gripper communication not ready, waiting...")
+                #         for i in range(20):
+                #             time.sleep(0.1)
+                #             if self.left_gripper.is_ok():
+                #                 log.info(f"[setup_gripper] Right gripper communication ready after {i*0.1:.1f}s")
+                #                 break
+                #         else:
+                #             log.error("[setup_gripper] Right gripper communication timeout!")
+                #             return
+                    
+                #     # 等待夹爪状态反馈
+                #     status = None
+                #     for i in range(20):
+                #         status = self.left_gripper.get_gripper_status()
+                #         if status is not None:
+                #             log.info(f"[setup_gripper] Right gripper status received after {i*0.1:.1f}s")
+                #             break
+                #         time.sleep(0.1)
+                    
+                #     if status is None:
+                #         log.warning("[setup_gripper] Right gripper status not available, continuing anyway...")
+                #     else:
+                #         log.info(f"[setup_gripper] Right gripper initial state: width={status.msg.width:.4f}m, force={status.msg.force:.2f}N, enabled={status.msg.foc_status.driver_enable_status}")
+                    
+
+                #     self.right_gripper_goto(0.0)
+                #     log.info("[setup_gripper] Right gripper closed (width=0.0)")
+                #     time.sleep(0.5)
+                #     self.right_gripper_goto(0.1)
+                #     log.info("[setup_gripper] Right gripper opened (width=0.1)")
+                #     time.sleep(0.5)
+                #     log.info("[setup_gripper] Right gripper setup completed")
             except Exception as e:
                 log.warning(f"[setup_gripper] Failed to setup gripper: {e}")
         
