@@ -54,7 +54,7 @@ class NeroDualArm(Robot):
         # self._right_smoothed_delta = None
 
         # 发送频率控制
-        self.action_send_freq = 50.0  # 50Hz
+        self.action_send_freq = 100.0  # 50Hz
         self.action_send_dt = 1.0 / self.action_send_freq
         self.last_action_send_time = 0.0
 
@@ -227,6 +227,7 @@ class NeroDualArm(Robot):
             return
         
         gripper_cmd_bin_attr = f"_{arm_side}_gripper_cmd_bin"
+        last_cmd = getattr(self, gripper_cmd_bin_attr)
         
         if not is_binary:
             gripper_cmd_bin = gripper_value
@@ -239,6 +240,10 @@ class NeroDualArm(Robot):
         
         if self.config.gripper_reverse:
             gripper_cmd_bin = self.config.gripper_max_open - gripper_cmd_bin
+
+        # Skip redundant command writes to reduce RPC blocking and gripper bus load.
+        if last_cmd is not None and abs(gripper_cmd_bin - last_cmd) < 1e-3:
+            return
         
         try:
             if arm_side == "left":
@@ -345,13 +350,13 @@ class NeroDualArm(Robot):
         
         try:
             t_query_start = time.perf_counter()
-            left_joint_pos = self._robot.left_robot_get_joint_positions()
+            # left_joint_pos = self._robot.left_robot_get_joint_positions()
             left_ee_pose = self._robot.left_robot_get_ee_pose()
             t_query_end = time.perf_counter()
             logger.info(f"[TIMING] left robot query: {(t_query_end-t_query_start)*1000:.2f}ms")
             
             t_query_start = time.perf_counter()
-            right_joint_pos = self._robot.right_robot_get_joint_positions()
+            # right_joint_pos = self._robot.right_robot_get_joint_positions()
             right_ee_pose = self._robot.right_robot_get_ee_pose()
             t_query_end = time.perf_counter()
             logger.info(f"[TIMING] right robot query: {(t_query_end-t_query_start)*1000:.2f}ms")
