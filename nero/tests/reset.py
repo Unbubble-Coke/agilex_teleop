@@ -15,7 +15,11 @@ def reset_arm(channel: str):
         robot.connect()
         time.sleep(0.3)
 
-        # 2. 清除急停状态
+        # 2. 电子急停
+        print(f"[{channel}] 触发电子急停...")
+        robot.electronic_emergency_stop()
+
+        # 清除急停状态
         print(f"[{channel}] 清除急停状态...")
         robot.reset()
         time.sleep(0.2)
@@ -27,8 +31,10 @@ def reset_arm(channel: str):
 
         # 4. 失能
         print(f"[{channel}] 失能...")
-        robot.disable()
-        time.sleep(0.5)
+        # robot.disable()
+        # time.sleep(0.1)
+        while not robot.disable():
+            time.sleep(0.1)
 
         # 5. 重新使能验证
         print(f"[{channel}] 重新使能...")
@@ -53,13 +59,13 @@ def reset_arm(channel: str):
         return False
 
 def main():
-    print("==================================================")
-    print("⚠️ 安全警告：执行重置会导致机械臂瞬间失去力矩！")
-    print("如果机械臂当前在半空中，它会【立刻掉落】。")
-    print("==================================================")
+    # print("==================================================")
+    # print("⚠️ 安全警告：执行重置会导致机械臂瞬间失去力矩！")
+    # print("如果机械臂当前在半空中，它会【立刻掉落】。")
+    # print("==================================================")
     
     # 强制要求用户确认，防止误触导致砸机
-    input("请【用手扶稳机械臂】，确认安全后按 Enter 键继续...")
+    # input("请【用手扶稳机械臂】，确认安全后按 Enter 键继续...")
 
     # 重置左臂和右臂
     left_ok = reset_arm("can_left")

@@ -87,7 +87,7 @@ class NeroDualArmServer:
                 self.right_gripper = self.right_robot.init_effector(self.right_robot.OPTIONS.EFFECTOR.AGX_GRIPPER)
             
             self.right_robot.connect()
-            time.sleep(0.5)
+            time.sleep(0.3)
 
             # 清除底层错误状态（防止之前卡在透传或急停模式）
             self.right_robot.set_normal_mode()
@@ -385,7 +385,6 @@ class NeroDualArmServer:
         # time.sleep(3.0)
         log.info("move to end-effector pose completed")
 
-    # TODO
     def dual_robot_move_to_ee_pose(self, left_pose: list, right_pose: list, delta: bool = False):
         if self.left_robot is None or self.right_robot is None:
             return
@@ -396,31 +395,6 @@ class NeroDualArmServer:
         if self.left_robot is None:
             log.error("Left robot not initialized")
             return
-
-        # log.info("\n--- 开始重置 ---")
-        # log.info("正在清除急停锁死标志...")
-        # self.left_robot.reset() 
-        # time.sleep(1.0)  # 给主控足够的时间重启状态机
-        
-        # log.info("正在切换回正常控制模式...")
-        # self.left_robot.set_normal_mode()
-        # time.sleep(0.5)
-        # log.info("--- 状态机重置完毕 ---\n")
-
-        # log.info("正在使能机械臂...")
-        # start_t = time.monotonic()
-        # is_enabled = False
-        # while time.monotonic() - start_t < 5.0:
-        #     if self.left_robot.enable():
-        #         is_enabled = True
-        #         break
-        #     time.sleep(0.5)
-
-        # if not is_enabled:
-        #     log.error("failed to enable left robot")
-        #     return
-
-        # log.info("Left robot enabled!")
 
         self.left_robot.set_speed_percent(30)
 
@@ -473,32 +447,8 @@ class NeroDualArmServer:
             log.error("Right robot not initialized")
             return
 
-        # log.info("\n--- 开始重置 ---")
-        # log.info("正在清除急停锁死标志...")
-        # self.right_robot.reset()
-        # time.sleep(1.0)  # 给主控足够的时间重启状态机
-        
-        # log.info("正在切换回正常控制模式...")
-        # self.right_robot.set_normal_mode()
-        # time.sleep(0.5)
-        # log.info("--- 状态机重置完毕 ---\n")
-
-        # log.info("正在使能机械臂...")
-        # start_t = time.monotonic()
-        # is_enabled = False
-        # while time.monotonic() - start_t < 5.0:
-        #     if self.right_robot.enable():
-        #         is_enabled = True
-        #         break
-        #     time.sleep(0.5)
-
-        # if not is_enabled:
-        #     log.info("使能失败！")
-        #     return
-            
-        # log.info("机械臂已使能上电！")
-
         self.right_robot.set_speed_percent(30)
+        
         home = [-1.22, 1.57, 1.57, 1.90, -1.57, 0.0, 0.0]
 
         log.info("[DEBUG] Moving to home: %s", home)
@@ -506,6 +456,7 @@ class NeroDualArmServer:
         
         # 等待运动完成
         motion_complete = self._wait_for_motion_complete(self.right_robot, home, timeout=20.0)
+
         if not motion_complete:
             log.warning("[right_robot_go_home] Motion did not complete within timeout")
         else:
