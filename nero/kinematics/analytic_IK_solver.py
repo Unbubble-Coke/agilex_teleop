@@ -303,7 +303,18 @@ class Pinocchio_Solver:
                     "nero_description.urdf",
                 )
             ),
-            os.path.expanduser("~/pyAgxArm/asserts/agx_arm_urdf-main/nero/urdf/nero_description.urdf"),
+            # os.path.expanduser("~/pyAgxArm/asserts/agx_arm_urdf-main/nero/urdf/nero_description.urdf"),
+            os.path.join(
+                base_dir,
+                "..",
+                "..",
+                "pyAgxArm",
+                "asserts",
+                "agx_arm_urdf",
+                "nero",
+                "urdf",
+                "nero_description.urdf",
+            ),
         ]
         for candidate in candidates:
             if os.path.isfile(candidate):

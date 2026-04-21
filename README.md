@@ -16,19 +16,6 @@ Required equipment for this project:
 
 ---
 
-## TODOs
-
-- [ ] Arm Control Issues
-  - [ ] Motion filtering ([1€ filter](https://github.com/casiez/OneEuroFilter))
-  - [ ] IK issues (consult AgileX/Songling technical support)
-    - [ ] Control frequency?
-    - [ ] Solving method (consider using other IK libraries with [nero urdf model](https://github.com/agilexrobotics/agx_arm_urdf), recommended [ikpy](https://github.com/ikpy/ikpy) and [frax](https://github.com/danielpmorton/frax))
-- [ ] Gripper Issues
-  - [ ] [Pika gripper SDK](https://github.com/agilexrobotics/pika_sdk) adaptation
-  - [ ] Response speed (first port Pika gripper SDK to project, if issues persist after testing then investigate SDK and [Server project](nero/teleop/interface/nero_interface_server.py) implementation of `left_gripper_goto()` and `right_gripper_goto()`)
-
----
-
 ## 0 Environment Setup
 
 ### 0.1 Create Conda Virtual Environment
@@ -199,9 +186,7 @@ For CAN module user manual, see official documentation: [docs/can_user.md](./doc
 
 #### 1.1.2 Run nero Test Scripts (recommended to run, otherwise the robotic arm may remain in a disabled state)
 
-**Note**:
-1. [reset.py](./nero/tests/reset.py) and [test_pos_flw_ik.py](./nero/tests/test_pos_flw_ik.py) are single-arm test scripts. After running one arm, modify the CAN device name in the file (e.g., `can_left` or `can_right`), then run the other.
-2. After running [reset.py](./nero/tests/reset.py), the robotic arm will instantly lose torque, **be sure to hold it steady!!!!!!**
+**Note**: [reset.py](./nero/tests/reset.py) and [test_pos_flw_ik.py](./nero/tests/test_pos_flw_ik.py) are single-arm test scripts. After running one arm, modify the CAN device name in the file (e.g., `can_left` or `can_right`), then run the other.
 
 ```bash
 # nero joint reset script
@@ -372,4 +357,5 @@ AgxArm_teleop/
 This code is built upon the following open-source repositories, which we would like to thank.
 
 - [pyAgxArm](https://github.com/agilexrobotics/pyAgxArm)
+- [agx_arm_urdf](https://github.com/agilexrobotics/agx_arm_urdf)
 - [dual_arm_teleop](https://github.com/Shenzhaolong1330/dual_arm_teleop)
