@@ -1,3 +1,4 @@
 [submodule "nero/kinematics/nero_kinematics"]
 	path = nero/kinematics/nero_kinematics
 	url = git@github.com:Key-Zzs/nero_kinematics.git
+	branch = main 
