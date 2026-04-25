@@ -43,10 +43,10 @@ class NeroDualArm(Robot):
         
         # Gripper settings
         self._gripper_force = config.gripper_force
-        self._left_gripper_cmd_bin = config.gripper_max_open
-        self._right_gripper_cmd_bin = config.gripper_max_open
-        # self._last_left_gripper_cmd_bin = config.gripper_max_open
-        # self._last_right_gripper_cmd_bin = config.gripper_max_open
+        self._left_gripper_cmd_bin = 1.0
+        self._right_gripper_cmd_bin = 1.0
+        # self._last_left_gripper_cmd_bin = 1.0
+        # self._last_right_gripper_cmd_bin = 1.0
 
         # Action smoothing
         # self._smoothing_alpha = 0.4
@@ -141,6 +141,8 @@ class NeroDualArm(Robot):
                 width=self.config.gripper_max_open,
                 force=self._gripper_force
                 )
+            self._left_gripper_cmd_bin = 1.0
+            self._right_gripper_cmd_bin = 1.0
             logger.info("[RIGHT GRIPPER] Initialized successfully")
             logger.info("===== [GRIPPER] Grippers initialized successfully =====\n")
         except Exception as e:
@@ -164,6 +166,8 @@ class NeroDualArm(Robot):
                 width=self.config.gripper_max_open,
                 force=self._gripper_force
             )
+            self._left_gripper_cmd_bin = 1.0
+            self._right_gripper_cmd_bin = 1.0
         
         logger.info("===== [ROBOT] Dual-arm system reset successfully =====\n")
     
@@ -220,6 +224,10 @@ class NeroDualArm(Robot):
             features["right_gripper_cmd_bin"] = float
         return features
 
+    @staticmethod
+    def _clip_gripper_cmd(value: float) -> float:
+        return min(1.0, max(0.0, float(value)))
+
     def handle_gripper(self, arm_side: str, gripper_value: float, is_binary: bool = False) -> None:
         t_handle_start = time.perf_counter()
         
@@ -229,17 +237,17 @@ class NeroDualArm(Robot):
         gripper_cmd_bin_attr = f"_{arm_side}_gripper_cmd_bin"
         last_cmd = getattr(self, gripper_cmd_bin_attr)
         
-        if not is_binary:
-            gripper_cmd_bin = gripper_value
-            # print(f"gripper_value: {gripper_value}")
-        else:
+        if is_binary:
             if gripper_value < self.config.close_threshold:
                 gripper_cmd_bin = 0.0
             else:
-                gripper_cmd_bin = self.config.gripper_max_open
+                gripper_cmd_bin = 1.0
+        else:
+            gripper_cmd_bin = self._clip_gripper_cmd(gripper_value)
+            # print(f"gripper_value: {gripper_value}")
         
         if self.config.gripper_reverse:
-            gripper_cmd_bin = self.config.gripper_max_open - gripper_cmd_bin
+            gripper_cmd_bin = 1.0 - gripper_cmd_bin
 
         # Skip redundant command writes to reduce RPC blocking and gripper bus load.
         if last_cmd is not None and abs(gripper_cmd_bin - last_cmd) < 1e-3:
