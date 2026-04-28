@@ -10,24 +10,30 @@ cd "$ROOT_DIR"
 
 echo "[clean] root: $ROOT_DIR"
 
-# 常见构建产物/缓存目录
-rm -rf \
-  ./build \
-  ./dist \
-  ./*.egg-info \
-  ./.eggs \
-  ./.pytest_cache \
-  ./.mypy_cache \
-  ./.ruff_cache \
-  ./.tox \
-  ./htmlcov \
-  ./.coverage \
-  ./.coverage.* \
-  ./pip-wheel-metadata \
-  ./__pypackages__
+# 常见构建产物/缓存目录（递归清理当前目录及所有子目录）
+build_patterns=(
+  build
+  "*.dist-info"
+  dist
+  "*.egg-info"
+  .eggs
+  .pytest_cache
+  .mypy_cache
+  .ruff_cache
+  .tox
+  htmlcov
+  pip-wheel-metadata
+  __pypackages__
+)
+
+for pattern in "${build_patterns[@]}"; do
+  find "$ROOT_DIR" -type d -name "$pattern" -prune -exec rm -rf -- {} + 2>/dev/null || true
+ done
+
+find "$ROOT_DIR" -type f \( -name ".coverage" -o -name ".coverage.*" \) -delete 2>/dev/null || true
 
 # Python bytecode / cache
-find . -type d -name "__pycache__" -prune -exec rm -rf {} + 2>/dev/null || true
-find . -type f \( -name "*.pyc" -o -name "*.pyo" \) -delete 2>/dev/null || true
+find "$ROOT_DIR" -type d -name "__pycache__" -prune -exec rm -rf {} + 2>/dev/null || true
+find "$ROOT_DIR" -type f \( -name "*.pyc" -o -name "*.pyo" \) -delete 2>/dev/null || true
 
 echo "[clean] done"
