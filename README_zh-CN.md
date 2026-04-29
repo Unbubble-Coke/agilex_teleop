@@ -170,7 +170,7 @@ pip install -e .
 
 2. 预定义 USB 端口、目标接口名称及波特率
 
-   假设上面记录的 `USB port` 数值分别为 `3-1.4:1.0` 和 `3-1.1:1.0`，则将 `agilex_ws/agilex_teleop/pyAgxArm/scripts/ubuntu/can_muti_activate.sh` 中的参数修改为：
+   假设上面记录的 `USB port` 数值分别为 `3-1.4:1.0` 和 `3-1.1:1.0`，则将 [agilex_ws/agilex_teleop/pyAgxArm/scripts/ubuntu/can_muti_activate.sh](./pyAgxArm/scripts/ubuntu/can_muti_activate.sh) 中的参数修改为：
 
    ```bash
    USB_PORTS["3-1.4:1.0"]="can_left:1000000"
@@ -296,8 +296,7 @@ python nero/tests/test_pos_flw_ik.py
 ## 2 启动遥操作 Server 端服务
 
 **注意**：
-1. 请保证 `bash pyAgxArm/scripts/ubuntu/find_all_can_port.sh` 输出有 `can_left` 和 `can_right` 两个 can 设备！！
-2. **启动 Server 端服务** [nero_interface_server.py](./nero/teleop/interface/nero_interface_server.py) **时一定要扶稳机械臂，程序还未优化，有跌落风险！！！！！**
+请保证 `bash pyAgxArm/scripts/ubuntu/find_all_can_port.sh` 输出有 `can_left` 和 `can_right` 两个 can 设备！！
 
 ```bash
 # 启动 Server 服务
