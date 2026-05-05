@@ -138,7 +138,7 @@ class Solver:
         current_q = self._clamp_joints(np.array(current_q, dtype=float))
         self.state = ContinuityRuntimeState(q_prev=current_q)
     
-    def solve(self, target_pose):
+    def solve(self, target_pose, limit_output_step: bool = True):
         """
         求解目标位姿对应的关节角
         :param target_pose: 6D pose [x, y, z, roll, pitch, yaw]
@@ -182,8 +182,18 @@ class Solver:
         # 关节限位裁剪
         q_cmd_clamped = self._clamp_joints(q_cmd)
 
-        # 输出侧跳变检测与抑制
-        q_out, jump_report = self._detect_and_guard_output(q_cmd_clamped)
+        # 输出侧跳变检测与抑制（可按调用方需求关闭）
+        if limit_output_step:
+            q_out, jump_report = self._detect_and_guard_output(q_cmd_clamped)
+        else:
+            q_out = q_cmd_clamped
+            jump_report = {
+                "jump_detected": False,
+                "joint_indices": [],
+                "dq_raw": [0.0] * 7,
+                "dq_limited": [0.0] * 7,
+                "mode": "bypass_rate_limit",
+            }
         self.last_jump_report = jump_report
         if jump_report["jump_detected"]:
             idx_str = ",".join(str(i + 1) for i in jump_report["joint_indices"])
@@ -445,7 +455,7 @@ class Pinocchio_Solver:
         current_q = self._clamp_joints(np.array(current_q, dtype=float))
         self.state = ContinuityRuntimeState(q_prev=current_q)
     
-    def solve(self, target_pose):
+    def solve(self, target_pose, limit_output_step: bool = True):
         """
         求解目标位姿对应的关节角
         :param target_pose: 6D pose [x, y, z, roll, pitch, yaw]
@@ -520,8 +530,18 @@ class Pinocchio_Solver:
         # 关节限位裁剪
         q_cmd_clamped = self._clamp_joints(q)
 
-        # 输出侧跳变检测与抑制
-        q_out, jump_report = self._detect_and_guard_output(q_cmd_clamped)
+        # 输出侧跳变检测与抑制（可按调用方需求关闭）
+        if limit_output_step:
+            q_out, jump_report = self._detect_and_guard_output(q_cmd_clamped)
+        else:
+            q_out = q_cmd_clamped
+            jump_report = {
+                "jump_detected": False,
+                "joint_indices": [],
+                "dq_raw": [0.0] * 7,
+                "dq_limited": [0.0] * 7,
+                "mode": "bypass_rate_limit",
+            }
         self.last_jump_report = jump_report
         if jump_report["jump_detected"]:
             idx_str = ",".join(str(i + 1) for i in jump_report["joint_indices"])

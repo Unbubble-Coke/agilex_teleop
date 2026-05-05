@@ -736,7 +736,7 @@ class NeroDualArmServer:
 
             # 4. IK 求解
             _t0 = _time.perf_counter()
-            q_cmd = ik_solver.solve(target_pose)
+            q_cmd = ik_solver.solve(target_pose, limit_output_step=bool(delta))
             _timings['ik_solve'] = (_time.perf_counter() - _t0) * 1000
 
             # IK 超时保护：若单次解算超过阈值，则丢弃本次动作，避免控制环路滞后。
