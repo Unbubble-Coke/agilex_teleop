@@ -599,6 +599,8 @@ class NeroDualArmServer:
             import time as _time
             from pyAgxArm.utiles.tf import rot_to_rpy, euler_convert_quat, quat_convert_euler
             
+            limit_z = 0.25
+
             # ========== 调用间隔追踪 ==========
             _t_call_start = _time.perf_counter()
             if not hasattr(self, '_last_call_time'):
@@ -719,6 +721,14 @@ class NeroDualArmServer:
             else:
                 # 绝对模式：直接使用目标位姿
                 target_pose = pose
+                target_xyz = np.asarray(target_pose[:3], dtype=float)
+
+            if target_xyz[2] < limit_z:
+                log.warning(
+                    f"[servo_p_OL] Skip command for {robot_arm}: "
+                    f"target z={target_xyz[2]:.4f}m < limit_z={limit_z:.4f}m"
+                )
+                return False
             _timings['target_compute'] = (_time.perf_counter() - _t0) * 1000
 
             # 4. IK 求解
