@@ -4,7 +4,6 @@ import os
 import sys
 import numpy as np
 from dataclasses import replace
-from pyAgxArm import create_agx_arm_config, AgxArmFactory
 from pyAgxArm.utiles.tf import rpy_to_rot, rot_to_rpy
 
 # 添加 ik_solver 路径
@@ -140,8 +139,8 @@ class Solver:
     
     def solve(self, target_pose, limit_output_step: bool = True):
         """
-        求解目标位姿对应的关节角
-        :param target_pose: 6D pose [x, y, z, roll, pitch, yaw]
+        求解目标 TCP 位姿对应的关节角
+        :param target_pose: TCP 6D pose [x, y, z, roll, pitch, yaw]
         :return: 7维关节角，失败返回 None
         """
         T_target = self._pose_to_matrix(target_pose)
@@ -238,6 +237,7 @@ class Pinocchio_Solver:
         n_psi=61,
         urdf_path=None,
         ee_frame_name="link7",
+        tcp_offset=None,
         max_iterations=60,
         damping=1e-4,
         tol_pos=1e-4,
@@ -272,6 +272,7 @@ class Pinocchio_Solver:
 
         self._q_lo = np.array([lo for lo, _ in self.joint_limits], dtype=float)
         self._q_hi = np.array([hi for _, hi in self.joint_limits], dtype=float)
+        self.set_tool_offset([0.0, 0.0, 0.0, 0.0, 0.0, 0.0] if tcp_offset is None else tcp_offset)
 
         # 输出侧防跳变参数（rad/s 与 rad）
         # 若知道各轴最大安全速度，建议按实机参数配置。
@@ -375,6 +376,23 @@ class Pinocchio_Solver:
             q_full[q_idx] = q[i]
         return q_full
 
+    def _pose6_to_matrix(self, pose6):
+        pose6 = np.asarray(pose6, dtype=float).reshape(-1)
+        if pose6.size != 6:
+            raise ValueError(f"Expected 6 pose values, got {pose6.size}")
+        T = np.eye(4, dtype=float)
+        T[:3, :3] = np.array(rpy_to_rot(pose6[3], pose6[4], pose6[5]), dtype=float)
+        T[:3, 3] = pose6[:3]
+        return T
+
+    def set_tool_offset(self, tcp_offset):
+        """Set TCP offset relative to ee_frame (ee -> tcp), [x,y,z,roll,pitch,yaw]."""
+        self.tcp_offset = np.asarray(tcp_offset, dtype=float).reshape(-1)
+        if self.tcp_offset.size != 6:
+            raise ValueError(f"Expected 6 tcp_offset values, got {self.tcp_offset.size}")
+        self._T_ee_tcp = self._pose6_to_matrix(self.tcp_offset)
+        self._T_tcp_ee = np.linalg.inv(self._T_ee_tcp)
+
     def fk_matrix(self, q):
         q = np.asarray(q, dtype=float).reshape(-1)
         q_full = self._to_full_q(self._clamp_joints(q))
@@ -384,7 +402,8 @@ class Pinocchio_Solver:
         placement = self.data.oMf[self.ee_frame_id]
         T[:3, :3] = np.asarray(placement.rotation, dtype=float)
         T[:3, 3] = np.asarray(placement.translation, dtype=float)
-        return T
+        # Return world->tcp instead of world->ee(link7)
+        return T @ self._T_ee_tcp
 
     def fk_pose(self, q):
         T = self.fk_matrix(q)
@@ -457,8 +476,8 @@ class Pinocchio_Solver:
     
     def solve(self, target_pose, limit_output_step: bool = True):
         """
-        求解目标位姿对应的关节角
-        :param target_pose: 6D pose [x, y, z, roll, pitch, yaw]
+        求解目标 TCP 位姿对应的关节角
+        :param target_pose: TCP 6D pose [x, y, z, roll, pitch, yaw]
         :return: 7维关节角，失败返回 None
         """
         target_pose = np.asarray(target_pose, dtype=float).reshape(-1)
@@ -472,7 +491,9 @@ class Pinocchio_Solver:
             q_seed = np.asarray(self.state.q_prev, dtype=float).reshape(-1)
 
         T_target = self._pose_to_matrix(target_pose)
-        target_se3 = pin.SE3(T_target[:3, :3], T_target[:3, 3])
+        # Solve IK in ee_frame (link7): T_world_ee = T_world_tcp * inv(T_ee_tcp)
+        T_target_ee = T_target @ self._T_tcp_ee
+        target_se3 = pin.SE3(T_target_ee[:3, :3], T_target_ee[:3, 3])
 
         q = self._clamp_joints(q_seed)
         q_full = self._to_full_q(q)

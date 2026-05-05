@@ -923,11 +923,12 @@ class NeroDualArmServer:
         start_t = time.monotonic()
         while current_pose is None or current_joints is None:
             if time.monotonic() - start_t > timeout_sec:
-                log.warning(f"[{robot_name}] get flange/joint pose timeout after {timeout_sec}s, using default pose")
+                log.warning(f"[{robot_name}] get tcp/joint pose timeout after {timeout_sec}s, using default pose")
                 current_pose = [0.0] * 6
                 current_joints = [0.0] * 7
                 break
-            fp = robot.get_flange_pose()
+            robot.set_tcp_offset(self.tcp_offset)
+            fp = robot.get_tcp_pose()
             ja = robot.get_joint_angles()
             if fp is not None: current_pose = fp.msg
             if ja is not None: current_joints = ja.msg
@@ -940,7 +941,12 @@ class NeroDualArmServer:
             joint_limits.append((lo, hi))
 
         # 实例化解析 IK 求解器
-        ik_solver = Pinocchio_Solver(joint_limits=joint_limits, dt=self.dt, n_psi=181)
+        ik_solver = Pinocchio_Solver(
+            joint_limits=joint_limits,
+            dt=self.dt,
+            n_psi=181,
+            tcp_offset=self.tcp_offset,
+        )
 
         # 机器人的真实状态给 IK 求解器初始化
         ik_solver.init_state(current_joints)
