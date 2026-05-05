@@ -130,6 +130,7 @@ class NeroDualArmServer:
             log.info("Nero Dual-Gripper Server Ready")
             log.info("=" * 50)
 
+        self.tcp_offset = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         # Initialize IK solver
         # Keep server-side IK timestep aligned with teleop action send rate.
         self.track_freq = 50.0
@@ -234,6 +235,7 @@ class NeroDualArmServer:
         """Get left arm end-effector pose [x, y, z, roll, pitch, yaw] (m, rad)."""
         if self.left_robot is None:
             return [0.0] * 6
+        self.left_robot.set_tcp_offset(self.tcp_offset)
         result = self.left_robot.get_tcp_pose()
         return result.msg if result is not None else [0.0] * 6
     
@@ -278,6 +280,7 @@ class NeroDualArmServer:
         """Get right arm end-effector pose [x, y, z, roll, pitch, yaw] (m, rad)."""
         if self.right_robot is None:
             return [0.0] * 6
+        self.right_robot.set_tcp_offset(self.tcp_offset)
         result = self.right_robot.get_tcp_pose()
         return result.msg if result is not None else [0.0] * 6
     
@@ -769,7 +772,7 @@ class NeroDualArmServer:
             if isinstance(q_cmd, np.ndarray):
                 q_cmd = q_cmd.tolist()
 
-            # ⚠️ 开环控制：不限制关节增量，让 IK solver 完全控制轨迹
+            # 开环控制：不限制关节增量，让 IK solver 完全控制轨迹
             # 参考 test_pos_flw_ik.py 的做法
             # q_cmd = self._limit_joint_step(q_current, np.asarray(q_cmd, dtype=float)).tolist()
 
