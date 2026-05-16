@@ -242,7 +242,6 @@ from dataclasses import dataclass
 try:
     import pinocchio as pin
 except ImportError:  # pragma: no cover
-    print(f"[Solver] Warning: Pinocchio not found. Install with: conda install -c conda-forge pinocchio eigenpy -y")
     pin = None
 
 @dataclass

@@ -1,9 +1,4 @@
 import numpy as np
-import pytest
-
-pytest.importorskip("pinocchio")
-
-from nero.kinematics.analytic_IK_solver import Pinocchio_Solver
 from nero.kinematics.debug_tools import (
     DEFAULT_NERO_EE_FRAME,
     DEFAULT_NERO_JOINT_LIMITS,
@@ -14,18 +9,8 @@ from nero.kinematics.debug_tools import (
 )
 
 
-def make_solver(max_iterations=120):
-    return Pinocchio_Solver(
-        joint_limits=DEFAULT_NERO_JOINT_LIMITS,
-        dt=0.05,
-        max_iterations=max_iterations,
-        tol_pos=1e-5,
-        tol_rot=1e-4,
-    )
-
-
-def test_fk_output_contract():
-    solver = make_solver()
+def test_fk_output_contract(solver_factory):
+    solver = solver_factory()
     q = np.mean(DEFAULT_NERO_JOINT_LIMITS, axis=1)
 
     T = solver.fk_matrix(q)
@@ -42,10 +27,11 @@ def test_fk_output_contract():
     assert solver.joint_names == DEFAULT_NERO_JOINT_NAMES
 
 
-def test_fk_ik_consistency_reachable_targets():
+def test_fk_ik_consistency_reachable_targets(solver_factory, solver_name):
     rng = np.random.default_rng(7)
-    solver = make_solver()
-    samples = sample_random_q(rng, DEFAULT_NERO_JOINT_LIMITS, num_samples=8, margin=0.08)
+    solver = solver_factory(max_iterations=120, n_psi=181)
+    sample_count = 3 if solver_name == "original" else 8
+    samples = sample_random_q(rng, DEFAULT_NERO_JOINT_LIMITS, num_samples=sample_count, margin=0.08)
 
     for q_target in samples:
         target_T = solver.fk_matrix(q_target)

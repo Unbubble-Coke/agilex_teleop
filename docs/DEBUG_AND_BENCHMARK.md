@@ -31,6 +31,7 @@ FK/IK consistency and FK output contract:
 
 ```bash
 pytest tests/test_fk_ik_consistency.py
+pytest tests/test_fk_ik_consistency.py --solver=original
 ```
 
 Jacobian numerical consistency:
@@ -39,10 +40,18 @@ Jacobian numerical consistency:
 pytest tests/test_jacobian_consistency.py
 ```
 
+`original` solver does not expose an analytic Jacobian, so this test is skipped
+when run with:
+
+```bash
+pytest tests/test_jacobian_consistency.py --solver=original
+```
+
 Joint limit checks:
 
 ```bash
 pytest tests/test_joint_limits.py
+pytest tests/test_joint_limits.py --solver=original
 ```
 
 Run all hermetic kinematics tests:
@@ -67,6 +76,7 @@ Generate one reachable target from FK and solve it:
 
 ```bash
 python examples/debug_single_target.py --seed 0
+python examples/debug_single_target.py --solver original --seed 0
 ```
 
 Use explicit target and seed joints:
@@ -94,16 +104,26 @@ Run reachable-target IK benchmark:
 
 ```bash
 python benchmarks/benchmark_ik.py \
+  --solver pinocchio \
   --num-samples 1000 \
   --output results/ik_benchmark.json \
   --log-failures results/ik_failures.jsonl
+
+python benchmarks/benchmark_ik.py \
+  --solver original \
+  --num-samples 1000 \
+  --n-psi 181 \
+  --output results/ik_benchmark_original.json \
+  --log-failures results/ik_failures_original.jsonl
 ```
 
 Useful options:
 
+- `--solver`: `pinocchio` or `original`, default `pinocchio`
 - `--num-samples`: default `1000`
 - `--seed`: default `0`
-- `--max-iters`: default `80`
+- `--max-iters`: default `80`; applies to `Pinocchio_Solver`
+- `--n-psi`: default `181`; applies to original `Solver`
 - `--pos-tol`: default `1e-3`
 - `--ori-tol`: default `1e-2`
 - `--output`: optional JSON summary path
@@ -117,6 +137,7 @@ Summary fields include:
 - `success_rate`
 - `mean_position_error`, `median_position_error`, `max_position_error`
 - `mean_orientation_error`, `median_orientation_error`, `max_orientation_error`
+- `iterations_available`
 - `mean_iterations`, `max_iterations`
 - `mean_latency_ms`, `median_latency_ms`, `p90_latency_ms`,
   `p95_latency_ms`, `p99_latency_ms`, `max_latency_ms`
@@ -133,9 +154,17 @@ Run warm-start trajectory continuity benchmark:
 
 ```bash
 python benchmarks/benchmark_trajectory_continuity.py \
+  --solver pinocchio \
   --num-samples 300 \
   --output results/trajectory_benchmark.json \
   --log-failures results/trajectory_failures.jsonl
+
+python benchmarks/benchmark_trajectory_continuity.py \
+  --solver original \
+  --num-samples 300 \
+  --n-psi 181 \
+  --output results/trajectory_benchmark_original.json \
+  --log-failures results/trajectory_failures_original.jsonl
 ```
 
 This benchmark creates a continuous reachable joint trajectory, maps each frame

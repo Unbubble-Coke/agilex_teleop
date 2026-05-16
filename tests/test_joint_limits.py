@@ -1,9 +1,4 @@
 import numpy as np
-import pytest
-
-pytest.importorskip("pinocchio")
-
-from nero.kinematics.analytic_IK_solver import Pinocchio_Solver
 from nero.kinematics.debug_tools import (
     DEFAULT_NERO_JOINT_LIMITS,
     joint_limit_violation,
@@ -24,20 +19,14 @@ def test_joint_limit_helper_detects_violations():
     assert joint_limit_violation(too_high, DEFAULT_NERO_JOINT_LIMITS)
 
 
-def test_solver_clamps_and_returns_solutions_inside_joint_limits():
+def test_solver_clamps_and_returns_solutions_inside_joint_limits(solver_factory):
     rng = np.random.default_rng(13)
-    solver = Pinocchio_Solver(
-        joint_limits=DEFAULT_NERO_JOINT_LIMITS,
-        dt=0.05,
-        max_iterations=120,
-        tol_pos=1e-5,
-        tol_rot=1e-4,
-    )
+    solver = solver_factory(max_iterations=120, n_psi=181)
 
     below_limits = DEFAULT_NERO_JOINT_LIMITS[:, 0] - 1.0
     above_limits = DEFAULT_NERO_JOINT_LIMITS[:, 1] + 1.0
     mixed = np.where(np.arange(7) % 2 == 0, below_limits, above_limits)
-    clamped = solver._clamp_joints(mixed)
+    clamped = solver.clamp_joints(mixed)
     assert not joint_limit_violation(clamped, DEFAULT_NERO_JOINT_LIMITS)
 
     q_target = sample_random_q(rng, DEFAULT_NERO_JOINT_LIMITS, num_samples=1, margin=0.1)[0]

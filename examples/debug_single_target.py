@@ -15,12 +15,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-try:
-    import pinocchio  # noqa: F401
-except ModuleNotFoundError as exc:
-    raise SystemExit("Pinocchio is required. Install the project dynamics extra first.") from exc
-
-from nero.kinematics.analytic_IK_solver import Pinocchio_Solver
 from nero.kinematics.debug_tools import (
     DEFAULT_NERO_JOINT_LIMITS,
     clip_to_joint_limits,
@@ -28,14 +22,22 @@ from nero.kinematics.debug_tools import (
     pose_errors,
     sample_random_q,
 )
+from nero.kinematics.solver_debug_adapter import make_debug_solver
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--solver",
+        choices=("pinocchio", "original"),
+        default="pinocchio",
+        help="Solver to debug: Pinocchio_Solver or original Solver.",
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--q", type=float, nargs=7, default=None, help="Target joint vector")
     parser.add_argument("--q-init", type=float, nargs=7, default=None, help="IK initial joint vector")
     parser.add_argument("--max-iters", type=int, default=80)
+    parser.add_argument("--n-psi", type=int, default=181, help="Arm-angle grid size for original Solver.")
     parser.add_argument("--pos-tol", type=float, default=1e-3)
     parser.add_argument("--ori-tol", type=float, default=1e-2)
     return parser.parse_args()
@@ -44,13 +46,23 @@ def parse_args():
 def main():
     args = parse_args()
     rng = np.random.default_rng(args.seed)
-    solver = Pinocchio_Solver(
-        joint_limits=DEFAULT_NERO_JOINT_LIMITS,
-        dt=0.05,
-        max_iterations=args.max_iters,
-        tol_pos=1e-5,
-        tol_rot=1e-4,
-    )
+    try:
+        solver = make_debug_solver(
+            args.solver,
+            joint_limits=DEFAULT_NERO_JOINT_LIMITS,
+            dt=0.05,
+            n_psi=args.n_psi,
+            max_iterations=args.max_iters,
+            tol_pos=1e-5,
+            tol_rot=1e-4,
+        )
+    except ModuleNotFoundError as exc:
+        raise SystemExit(
+            f"{args.solver} solver dependencies are missing. "
+            "For Pinocchio_Solver install: pip install -e '.[dynamics]'."
+        ) from exc
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
 
     q_target = (
         np.asarray(args.q, dtype=float)
@@ -78,6 +90,7 @@ def main():
         pos_err, ori_err = pose_errors(solver.fk_matrix(q_solution), target_T)
 
     result = {
+        "solver": "Pinocchio_Solver" if args.solver == "pinocchio" else "Solver",
         "urdf_path": solver.urdf_path,
         "ee_frame": solver.ee_frame_name,
         "joint_names": solver.joint_names,

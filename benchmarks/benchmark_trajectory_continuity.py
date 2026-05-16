@@ -15,12 +15,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-try:
-    import pinocchio  # noqa: F401
-except ModuleNotFoundError as exc:
-    raise SystemExit("Pinocchio is required. Install the project dynamics extra first.") from exc
-
-from nero.kinematics.analytic_IK_solver import Pinocchio_Solver
 from nero.kinematics.debug_tools import (
     DEFAULT_NERO_JOINT_LIMITS,
     clip_to_joint_limits,
@@ -29,13 +23,21 @@ from nero.kinematics.debug_tools import (
     sample_random_q,
     scalar_stats,
 )
+from nero.kinematics.solver_debug_adapter import make_debug_solver
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--solver",
+        choices=("pinocchio", "original"),
+        default="pinocchio",
+        help="Solver to benchmark: Pinocchio_Solver or original Solver.",
+    )
     parser.add_argument("--num-samples", type=int, default=300)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-iters", type=int, default=80)
+    parser.add_argument("--n-psi", type=int, default=181, help="Arm-angle grid size for original Solver.")
     parser.add_argument("--pos-tol", type=float, default=1e-3)
     parser.add_argument("--ori-tol", type=float, default=1e-2)
     parser.add_argument("--output", type=Path, default=None)
@@ -52,14 +54,28 @@ def parse_args():
     return parser.parse_args()
 
 
-def make_solver(max_iters: int) -> Pinocchio_Solver:
-    return Pinocchio_Solver(
-        joint_limits=DEFAULT_NERO_JOINT_LIMITS,
-        dt=0.05,
-        max_iterations=max_iters,
-        tol_pos=1e-5,
-        tol_rot=1e-4,
-    )
+def make_solver(solver_name: str, max_iters: int, n_psi: int):
+    try:
+        return make_debug_solver(
+            solver_name,
+            joint_limits=DEFAULT_NERO_JOINT_LIMITS,
+            dt=0.05,
+            n_psi=n_psi,
+            max_iterations=max_iters,
+            tol_pos=1e-5,
+            tol_rot=1e-4,
+        )
+    except ModuleNotFoundError as exc:
+        raise SystemExit(
+            f"{solver_name} solver dependencies are missing. "
+            "For Pinocchio_Solver install: pip install -e '.[dynamics]'."
+        ) from exc
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def solver_display_name(solver_name: str) -> str:
+    return "Pinocchio_Solver" if solver_name == "pinocchio" else "Solver"
 
 
 def build_joint_trajectory(rng: np.random.Generator, num_samples: int, step_std: float) -> np.ndarray:
@@ -94,7 +110,7 @@ def failure_record(index, target_pose, q_init, q_solution, pos_err, ori_err, lat
 def main():
     args = parse_args()
     rng = np.random.default_rng(args.seed)
-    solver = make_solver(args.max_iters)
+    solver = make_solver(args.solver, args.max_iters, args.n_psi)
     q_path = build_joint_trajectory(rng, args.num_samples, args.joint_step_std)
 
     position_errors = []
@@ -122,7 +138,7 @@ def main():
         report = dict(solver.last_report or {})
 
         latencies_ms.append(latency_ms)
-        iterations.append(int(report.get("iterations", args.max_iters)))
+        iterations.append(int(report.get("iterations", 0)))
         if report.get("timed_out") or (
             q_solution is None and int(report.get("iterations", 0)) >= args.max_iters
         ):
@@ -173,6 +189,7 @@ def main():
     jump_count = int(np.sum(np.asarray(joint_step_norms, dtype=float) > args.jump_threshold))
 
     results = {
+        "solver": solver_display_name(args.solver),
         "num_samples": int(args.num_samples),
         "success_count": int(success_count),
         "success_rate": float(success_count / max(1, args.num_samples)),
@@ -182,6 +199,7 @@ def main():
         "mean_orientation_error": ori_stats["mean"],
         "median_orientation_error": ori_stats["median"],
         "max_orientation_error": ori_stats["max"],
+        "iterations_available": bool(any(iteration > 0 for iteration in iterations)),
         "mean_iterations": float(np.mean(iterations)) if iterations else float("nan"),
         "max_iterations": int(np.max(iterations)) if iterations else 0,
         "mean_latency_ms": latency_stats["mean"],

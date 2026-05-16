@@ -81,6 +81,11 @@ Class definitions:
   6xN Jacobian debug checks.
 - Added richer `Pinocchio_Solver.last_report` fields:
   `reason`, `timed_out`, `last_q`, `best_q`, and `solution_q`.
+- Added a debug/benchmark solver adapter so offline tests can select either
+  the original `Solver` or `Pinocchio_Solver` without adding SDK coupling.
+- Fixed the legacy analytic IK optimizer path so 1D QP is skipped when both QP
+  weights are set to zero; this preserves the existing wrapper's "QP disabled"
+  behavior during tests and benchmarks.
 
 ## 5. Dependencies That Remain
 

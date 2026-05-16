@@ -1,9 +1,6 @@
 import numpy as np
 import pytest
 
-pytest.importorskip("pinocchio")
-
-from nero.kinematics.analytic_IK_solver import Pinocchio_Solver
 from nero.kinematics.debug_tools import (
     DEFAULT_NERO_JOINT_LIMITS,
     numerical_jacobian,
@@ -11,13 +8,12 @@ from nero.kinematics.debug_tools import (
 )
 
 
-def test_pinocchio_jacobian_matches_finite_difference():
+def test_solver_jacobian_matches_finite_difference(solver_factory):
     rng = np.random.default_rng(11)
-    solver = Pinocchio_Solver(
-        joint_limits=DEFAULT_NERO_JOINT_LIMITS,
-        dt=0.05,
-        max_iterations=80,
-    )
+    solver = solver_factory(max_iterations=80)
+    if not solver.supports_jacobian:
+        pytest.skip("Original Solver does not expose an analytic Jacobian")
+
     q = sample_random_q(rng, DEFAULT_NERO_JOINT_LIMITS, num_samples=1, margin=0.15)[0]
 
     analytic_J = solver.jacobian_matrix(q)
