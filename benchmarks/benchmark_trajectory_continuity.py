@@ -37,10 +37,16 @@ def parse_args():
     parser.add_argument("--num-samples", type=int, default=300)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-iters", type=int, default=80)
-    parser.add_argument("--n-psi", type=int, default=181, help="Arm-angle grid size for original Solver.")
+    parser.add_argument("--n-psi", type=int, default=61, help="Arm-angle grid size for original Solver.")
     parser.add_argument("--pos-tol", type=float, default=1e-3)
     parser.add_argument("--ori-tol", type=float, default=1e-2)
     parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument(
+        "--progress-every",
+        type=int,
+        default=50,
+        help="Print progress every N samples. Use 0 to disable.",
+    )
     parser.add_argument(
         "--log-failures",
         nargs="?",
@@ -180,6 +186,17 @@ def main():
                     report,
                     reason,
                 )
+            )
+
+        if args.progress_every > 0 and (
+            (idx + 1) % args.progress_every == 0 or (idx + 1) == args.num_samples
+        ):
+            mean_latency = float(np.mean(latencies_ms)) if latencies_ms else float("nan")
+            print(
+                f"[benchmark_trajectory_continuity] {idx + 1}/{args.num_samples} "
+                f"success={success_count} mean_latency_ms={mean_latency:.2f}",
+                file=sys.stderr,
+                flush=True,
             )
 
     latency_stats = scalar_stats(latencies_ms)

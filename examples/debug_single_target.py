@@ -37,7 +37,7 @@ def parse_args():
     parser.add_argument("--q", type=float, nargs=7, default=None, help="Target joint vector")
     parser.add_argument("--q-init", type=float, nargs=7, default=None, help="IK initial joint vector")
     parser.add_argument("--max-iters", type=int, default=80)
-    parser.add_argument("--n-psi", type=int, default=181, help="Arm-angle grid size for original Solver.")
+    parser.add_argument("--n-psi", type=int, default=61, help="Arm-angle grid size for original Solver.")
     parser.add_argument("--pos-tol", type=float, default=1e-3)
     parser.add_argument("--ori-tol", type=float, default=1e-2)
     return parser.parse_args()

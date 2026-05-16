@@ -123,7 +123,8 @@ Useful options:
 - `--num-samples`: default `1000`
 - `--seed`: default `0`
 - `--max-iters`: default `80`; applies to `Pinocchio_Solver`
-- `--n-psi`: default `181`; applies to original `Solver`
+- `--n-psi`: default `61`; applies to original `Solver`
+- `--progress-every`: default `50`; prints long-run progress to stderr
 - `--pos-tol`: default `1e-3`
 - `--ori-tol`: default `1e-2`
 - `--output`: optional JSON summary path
