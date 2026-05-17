@@ -1,0 +1,559 @@
+# Legacy Solver Profiling Report
+
+solver: Solver
+num_samples: 100
+python: /home/keyz/miniconda3/envs/RoboTwin/bin/python (3.10.20 (main, Mar 11 2026, 17:46:40) [GCC 14.3.0])
+pinocchio_solver_constructed: False
+pinocchio_solver_error: RuntimeError: Pinocchio is required for Solver. Install with: conda install -c conda-forge pinocchio eigenpy -y
+
+## Latency
+init_time_ms: 0.016542
+cold_import_and_init_time_ms: 135.366352
+mean_total_ms: 58.930424
+median_total_ms: 57.929210
+p95_total_ms: 66.051749
+p99_total_ms: 73.653682
+max_total_ms: 88.976749
+success_rate: 1.000000
+
+## Report Summary
+{
+  "candidate_count_stats": {
+    "max": 1.0,
+    "mean": 1.0,
+    "median": 1.0,
+    "p90": 1.0,
+    "p95": 1.0,
+    "p99": 1.0
+  },
+  "method_counts": {
+    "continuous_global_fallback+1DQP": 100
+  }
+}
+
+## Stage Timing
+candidate_generation           mean=39.978642 ms p95=44.198655 ms p99=44.704004 ms max=45.228733 ms percent=68.20%
+fk_validation                  mean=9.483165 ms p95=10.427471 ms p99=10.637553 ms max=10.688612 ms percent=16.18%
+candidate_filtering            mean=6.098022 ms p95=7.325892 ms p99=8.085851 ms max=8.276751 ms percent=10.40%
+qp_refinement                  mean=1.577150 ms p95=1.774854 ms p99=1.832309 ms max=1.852869 ms percent=2.69%
+choose_solution                mean=1.250883 ms p95=2.402820 ms p99=2.595495 ms max=2.597249 ms percent=2.13%
+global_fallback_overhead       mean=0.088692 ms p95=0.118823 ms p99=0.125949 ms max=0.149733 ms percent=0.15%
+core_solver_overhead           mean=0.067550 ms p95=0.080759 ms p99=0.088502 ms max=0.094974 ms percent=0.12%
+unattributed_python_overhead   mean=0.039672 ms p95=0.050498 ms p99=0.058344 ms max=0.072659 ms percent=0.07%
+joint_limit_check              mean=0.017546 ms p95=0.020566 ms p99=0.027434 ms max=0.030875 ms percent=0.03%
+parse_input                    mean=0.015617 ms p95=0.018103 ms p99=0.019858 ms max=0.022185 ms percent=0.03%
+
+## cProfile Top Functions
+         7204857 function calls in 8.275 seconds
+
+   Ordered by: cumulative time
+   List reduced from 109 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      100    0.000    0.000    8.276    0.083 solver_debug_adapter.py:50(solve)
+      100    0.001    0.000    8.276    0.083 analytic_IK_solver.py:169(solve)
+      100    0.004    0.000    8.268    0.083 ik_solver.py:884(solve_pose_continuous_with_state)
+      100    0.002    0.000    8.194    0.082 ik_solver.py:698(ik_arm_angle_with_report)
+      100    0.021    0.000    6.394    0.064 ik_solver.py:415(_scan_theta0_solutions)
+     6200    0.753    0.000    6.372    0.001 ik_solver.py:601(_ik_one_arm_angle)
+   130700    0.916    0.000    2.170    0.000 ik_solver.py:35(_dh_A)
+      200    0.008    0.000    1.567    0.008 ik_solver.py:528(_optimize_q_with_1d_qp)
+      700    0.003    0.000    1.556    0.002 _minimize.py:735(minimize_scalar)
+      700    0.064    0.000    1.552    0.002 _optimize.py:2171(_minimize_scalar_bounded)
+     4200    0.041    0.000    1.481    0.000 ik_solver.py:488(_qp_1d_objective)
+    25900    0.492    0.000    1.347    0.000 numeric.py:1468(cross)
+     6200    0.167    0.000    1.042    0.000 ik_solver.py:319(_elbow_from_arm_angle)
+     4500    0.070    0.000    0.762    0.000 ik_solver.py:13(pose_error)
+    77700    0.260    0.000    0.748    0.000 numeric.py:1393(moveaxis)
+     4500    0.020    0.000    0.741    0.000 ik_solver.py:157(fk)
+     4500    0.136    0.000    0.707    0.000 ik_solver.py:147(fk_all)
+    49600    0.265    0.000    0.690    0.000 ik_solver.py:166(_within_limits)
+    12400    0.284    0.000    0.632    0.000 ik_solver.py:204(_solve_q123_from_swe)
+   193900    0.481    0.000    0.615    0.000 twodim_base.py:158(eye)
+    24800    0.288    0.000    0.579    0.000 ik_solver.py:186(_extract_567_from_T47_paper)
+   565323    0.560    0.000    0.560    0.000 {built-in method numpy.array}
+   130700    0.177    0.000    0.417    0.000 ik_solver.py:30(_rotx)
+    68443    0.074    0.000    0.412    0.000 fromnumeric.py:2421(all)
+    73000    0.234    0.000    0.396    0.000 linalg.py:2383(norm)
+   155400    0.246    0.000    0.374    0.000 numeric.py:1330(normalize_axis_tuple)
+    43500    0.051    0.000    0.366    0.000 fromnumeric.py:2100(clip)
+    68443    0.117    0.000    0.339    0.000 fromnumeric.py:71(_wrapreduction)
+   130700    0.145    0.000    0.329    0.000 ik_solver.py:25(_rotz)
+    43500    0.054    0.000    0.315    0.000 fromnumeric.py:53(_wrapfunc)
+    54600    0.280    0.000    0.280    0.000 ik_solver.py:9(wrap_to_pi)
+     6300    0.074    0.000    0.267    0.000 ik_solver.py:288(_compute_swe_from_target)
+    24800    0.174    0.000    0.245    0.000 ik_solver.py:49(_invert_rigid_transform)
+      100    0.101    0.001    0.191    0.002 ik_solver.py:439(_best_weighted_from_cached)
+    68443    0.175    0.000    0.175    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+     6300    0.037    0.000    0.151    0.000 ik_solver.py:272(_solve_theta4_from_triangle)
+    18700    0.057    0.000    0.131    0.000 fromnumeric.py:40(_wrapit)
+    43500    0.119    0.000    0.119    0.000 _methods.py:90(_clip)
+    24800    0.047    0.000    0.118    0.000 {method 'clip' of 'numpy.generic' objects}
+   193900    0.101    0.000    0.101    0.000 {built-in method numpy.zeros}
+
+## JSON Summary
+{
+  "cold_import_and_init_time_ms": 135.36635199852753,
+  "cprofile_latency_stats": {
+    "max": 123.68250600411557,
+    "mean": 82.76393105028546,
+    "median": 82.30614299827721,
+    "p90": 91.0812457004795,
+    "p95": 99.39156079635723,
+    "p99": 106.76883713502329
+  },
+  "hotspots": [
+    {
+      "call_count": 100,
+      "cumtime_ms": 8275.857785000002,
+      "function": "solver_debug_adapter.py:50(solve)",
+      "percall_ms": 82.75857785000002,
+      "primitive_calls": 100,
+      "tottime_ms": 0.282539
+    },
+    {
+      "call_count": 100,
+      "cumtime_ms": 8275.575246,
+      "function": "analytic_IK_solver.py:169(solve)",
+      "percall_ms": 82.75575246,
+      "primitive_calls": 100,
+      "tottime_ms": 1.294143
+    },
+    {
+      "call_count": 100,
+      "cumtime_ms": 8268.305379000001,
+      "function": "ik_solver.py:884(solve_pose_continuous_with_state)",
+      "percall_ms": 82.68305379000002,
+      "primitive_calls": 100,
+      "tottime_ms": 4.096462000000001
+    },
+    {
+      "call_count": 100,
+      "cumtime_ms": 8194.167049000001,
+      "function": "ik_solver.py:698(ik_arm_angle_with_report)",
+      "percall_ms": 81.94167049000002,
+      "primitive_calls": 100,
+      "tottime_ms": 1.7997990000000001
+    },
+    {
+      "call_count": 100,
+      "cumtime_ms": 6394.488015,
+      "function": "ik_solver.py:415(_scan_theta0_solutions)",
+      "percall_ms": 63.944880149999996,
+      "primitive_calls": 100,
+      "tottime_ms": 21.310366000000002
+    },
+    {
+      "call_count": 6200,
+      "cumtime_ms": 6371.914967000001,
+      "function": "ik_solver.py:601(_ik_one_arm_angle)",
+      "percall_ms": 1.0277282204838711,
+      "primitive_calls": 6200,
+      "tottime_ms": 752.6929990000001
+    },
+    {
+      "call_count": 130700,
+      "cumtime_ms": 2169.552029,
+      "function": "ik_solver.py:35(_dh_A)",
+      "percall_ms": 0.016599479946442234,
+      "primitive_calls": 130700,
+      "tottime_ms": 916.0108170000001
+    },
+    {
+      "call_count": 200,
+      "cumtime_ms": 1566.637899,
+      "function": "ik_solver.py:528(_optimize_q_with_1d_qp)",
+      "percall_ms": 7.833189495,
+      "primitive_calls": 200,
+      "tottime_ms": 8.35317
+    },
+    {
+      "call_count": 700,
+      "cumtime_ms": 1556.0359580000002,
+      "function": "_minimize.py:735(minimize_scalar)",
+      "percall_ms": 2.222908511428572,
+      "primitive_calls": 700,
+      "tottime_ms": 3.102088
+    },
+    {
+      "call_count": 700,
+      "cumtime_ms": 1552.131106,
+      "function": "_optimize.py:2171(_minimize_scalar_bounded)",
+      "percall_ms": 2.2173301514285715,
+      "primitive_calls": 700,
+      "tottime_ms": 63.52667000000001
+    },
+    {
+      "call_count": 4200,
+      "cumtime_ms": 1480.7950520000002,
+      "function": "ik_solver.py:488(_qp_1d_objective)",
+      "percall_ms": 0.3525702504761905,
+      "primitive_calls": 4200,
+      "tottime_ms": 40.574979000000006
+    },
+    {
+      "call_count": 25900,
+      "cumtime_ms": 1346.839711,
+      "function": "numeric.py:1468(cross)",
+      "percall_ms": 0.05200153324324325,
+      "primitive_calls": 25900,
+      "tottime_ms": 492.16339800000003
+    },
+    {
+      "call_count": 6200,
+      "cumtime_ms": 1042.2970280000002,
+      "function": "ik_solver.py:319(_elbow_from_arm_angle)",
+      "percall_ms": 0.16811242387096778,
+      "primitive_calls": 6200,
+      "tottime_ms": 166.99325000000002
+    },
+    {
+      "call_count": 4500,
+      "cumtime_ms": 761.617478,
+      "function": "ik_solver.py:13(pose_error)",
+      "percall_ms": 0.16924832844444446,
+      "primitive_calls": 4500,
+      "tottime_ms": 69.955481
+    },
+    {
+      "call_count": 77700,
+      "cumtime_ms": 748.4699610000001,
+      "function": "numeric.py:1393(moveaxis)",
+      "percall_ms": 0.009632818030888033,
+      "primitive_calls": 77700,
+      "tottime_ms": 259.5114
+    },
+    {
+      "call_count": 4500,
+      "cumtime_ms": 740.5139,
+      "function": "ik_solver.py:157(fk)",
+      "percall_ms": 0.16455864444444446,
+      "primitive_calls": 4500,
+      "tottime_ms": 20.296543
+    },
+    {
+      "call_count": 4500,
+      "cumtime_ms": 707.2126190000001,
+      "function": "ik_solver.py:147(fk_all)",
+      "percall_ms": 0.1571583597777778,
+      "primitive_calls": 4500,
+      "tottime_ms": 135.58752600000003
+    },
+    {
+      "call_count": 49600,
+      "cumtime_ms": 690.3283400000001,
+      "function": "ik_solver.py:166(_within_limits)",
+      "percall_ms": 0.013917910080645165,
+      "primitive_calls": 49600,
+      "tottime_ms": 264.80590800000004
+    },
+    {
+      "call_count": 12400,
+      "cumtime_ms": 631.95942,
+      "function": "ik_solver.py:204(_solve_q123_from_swe)",
+      "percall_ms": 0.05096446935483871,
+      "primitive_calls": 12400,
+      "tottime_ms": 284.484218
+    },
+    {
+      "call_count": 193900,
+      "cumtime_ms": 614.9528740000001,
+      "function": "twodim_base.py:158(eye)",
+      "percall_ms": 0.003171494966477566,
+      "primitive_calls": 193900,
+      "tottime_ms": 480.57237900000007
+    },
+    {
+      "call_count": 24800,
+      "cumtime_ms": 579.214469,
+      "function": "ik_solver.py:186(_extract_567_from_T47_paper)",
+      "percall_ms": 0.023355422137096776,
+      "primitive_calls": 24800,
+      "tottime_ms": 287.53031200000004
+    },
+    {
+      "call_count": 565323,
+      "cumtime_ms": 560.495134,
+      "function": "~:0(<built-in method numpy.array>)",
+      "percall_ms": 0.0009914599865917361,
+      "primitive_calls": 565323,
+      "tottime_ms": 560.495134
+    },
+    {
+      "call_count": 130700,
+      "cumtime_ms": 417.49978100000004,
+      "function": "ik_solver.py:30(_rotx)",
+      "percall_ms": 0.0031943365034429994,
+      "primitive_calls": 130700,
+      "tottime_ms": 177.21540700000003
+    },
+    {
+      "call_count": 68443,
+      "cumtime_ms": 412.424734,
+      "function": "fromnumeric.py:2421(all)",
+      "percall_ms": 0.006025813216837368,
+      "primitive_calls": 68443,
+      "tottime_ms": 73.83495500000001
+    },
+    {
+      "call_count": 73000,
+      "cumtime_ms": 396.363609,
+      "function": "linalg.py:2383(norm)",
+      "percall_ms": 0.005429638479452055,
+      "primitive_calls": 73000,
+      "tottime_ms": 233.93771400000003
+    },
+    {
+      "call_count": 155400,
+      "cumtime_ms": 373.77092,
+      "function": "numeric.py:1330(normalize_axis_tuple)",
+      "percall_ms": 0.002405218275418275,
+      "primitive_calls": 155400,
+      "tottime_ms": 246.16413300000002
+    },
+    {
+      "call_count": 43500,
+      "cumtime_ms": 365.516586,
+      "function": "fromnumeric.py:2100(clip)",
+      "percall_ms": 0.008402680137931036,
+      "primitive_calls": 43500,
+      "tottime_ms": 50.521243
+    },
+    {
+      "call_count": 68443,
+      "cumtime_ms": 338.589779,
+      "function": "fromnumeric.py:71(_wrapreduction)",
+      "percall_ms": 0.004947032990955978,
+      "primitive_calls": 68443,
+      "tottime_ms": 116.95170300000001
+    },
+    {
+      "call_count": 130700,
+      "cumtime_ms": 328.530948,
+      "function": "ik_solver.py:25(_rotz)",
+      "percall_ms": 0.0025136262280030606,
+      "primitive_calls": 130700,
+      "tottime_ms": 145.29608800000003
+    },
+    {
+      "call_count": 43500,
+      "cumtime_ms": 314.99534300000005,
+      "function": "fromnumeric.py:53(_wrapfunc)",
+      "percall_ms": 0.007241272252873564,
+      "primitive_calls": 43500,
+      "tottime_ms": 54.46311600000001
+    },
+    {
+      "call_count": 54600,
+      "cumtime_ms": 280.375979,
+      "function": "ik_solver.py:9(wrap_to_pi)",
+      "percall_ms": 0.00513509119047619,
+      "primitive_calls": 54600,
+      "tottime_ms": 280.375979
+    },
+    {
+      "call_count": 6300,
+      "cumtime_ms": 266.655325,
+      "function": "ik_solver.py:288(_compute_swe_from_target)",
+      "percall_ms": 0.042326242063492066,
+      "primitive_calls": 6300,
+      "tottime_ms": 73.915098
+    },
+    {
+      "call_count": 24800,
+      "cumtime_ms": 245.192141,
+      "function": "ik_solver.py:49(_invert_rigid_transform)",
+      "percall_ms": 0.009886779879032258,
+      "primitive_calls": 24800,
+      "tottime_ms": 174.32181200000002
+    },
+    {
+      "call_count": 100,
+      "cumtime_ms": 191.490254,
+      "function": "ik_solver.py:439(_best_weighted_from_cached)",
+      "percall_ms": 1.91490254,
+      "primitive_calls": 100,
+      "tottime_ms": 100.827581
+    },
+    {
+      "call_count": 68443,
+      "cumtime_ms": 174.73543800000002,
+      "function": "~:0(<method 'reduce' of 'numpy.ufunc' objects>)",
+      "percall_ms": 0.0025530067063103605,
+      "primitive_calls": 68443,
+      "tottime_ms": 174.73543800000002
+    },
+    {
+      "call_count": 6300,
+      "cumtime_ms": 151.02769600000002,
+      "function": "ik_solver.py:272(_solve_theta4_from_triangle)",
+      "percall_ms": 0.023972650158730163,
+      "primitive_calls": 6300,
+      "tottime_ms": 36.749777
+    },
+    {
+      "call_count": 18700,
+      "cumtime_ms": 130.723405,
+      "function": "fromnumeric.py:40(_wrapit)",
+      "percall_ms": 0.006990556417112301,
+      "primitive_calls": 18700,
+      "tottime_ms": 56.828273
+    },
+    {
+      "call_count": 43500,
+      "cumtime_ms": 119.25692800000002,
+      "function": "_methods.py:90(_clip)",
+      "percall_ms": 0.002741538574712644,
+      "primitive_calls": 43500,
+      "tottime_ms": 119.25692800000002
+    },
+    {
+      "call_count": 24800,
+      "cumtime_ms": 118.263828,
+      "function": "~:0(<method 'clip' of 'numpy.generic' objects>)",
+      "percall_ms": 0.004768702741935484,
+      "primitive_calls": 24800,
+      "tottime_ms": 46.65815800000001
+    },
+    {
+      "call_count": 193900,
+      "cumtime_ms": 101.10706200000001,
+      "function": "~:0(<built-in method numpy.zeros>)",
+      "percall_ms": 0.0005214392057761734,
+      "primitive_calls": 193900,
+      "tottime_ms": 101.10706200000001
+    }
+  ],
+  "init_time_ms": 0.016541601507924497,
+  "init_time_stats": {
+    "max": 0.022598003852181137,
+    "mean": 0.016541601507924497,
+    "median": 0.014802004443481565,
+    "p90": 0.02046200097538531,
+    "p95": 0.021530002413783222,
+    "p99": 0.022384403564501554
+  },
+  "instrumented_latency_stats": {
+    "max": 68.60915900324471,
+    "mean": 58.61693899969396,
+    "median": 59.91854300009436,
+    "p90": 65.05812119939947,
+    "p95": 65.7808861014928,
+    "p99": 67.06954565379421
+  },
+  "instrumented_mean_total_ms": 58.61693899969396,
+  "latency_stats": {
+    "max": 88.97674900072161,
+    "mean": 58.93042371018964,
+    "median": 57.92921000102069,
+    "p90": 62.866667197522474,
+    "p95": 66.05174949945649,
+    "p99": 73.65368245649742
+  },
+  "mean_total_ms": 58.93042371018964,
+  "n_psi": 61,
+  "num_samples": 100,
+  "pinocchio_solver_constructed": false,
+  "pinocchio_solver_error": "RuntimeError: Pinocchio is required for Solver. Install with: conda install -c conda-forge pinocchio eigenpy -y",
+  "python_executable": "/home/keyz/miniconda3/envs/RoboTwin/bin/python",
+  "python_version": "3.10.20 (main, Mar 11 2026, 17:46:40) [GCC 14.3.0]",
+  "report_summary": {
+    "candidate_count_stats": {
+      "max": 1.0,
+      "mean": 1.0,
+      "median": 1.0,
+      "p90": 1.0,
+      "p95": 1.0,
+      "p99": 1.0
+    },
+    "method_counts": {
+      "continuous_global_fallback+1DQP": 100
+    }
+  },
+  "seed": 0,
+  "solver": "Solver",
+  "stage_breakdown": {
+    "candidate_filtering": {
+      "max_ms": 8.276750988443382,
+      "mean_ms": 6.09802188249887,
+      "median_ms": 6.0274909519648645,
+      "p95_ms": 7.325892016888247,
+      "p99_ms": 8.085851236173768,
+      "percent_of_total": 10.4031735306593
+    },
+    "candidate_generation": {
+      "max_ms": 45.22873301175423,
+      "mean_ms": 39.97864153665432,
+      "median_ms": 41.2746239817352,
+      "p95_ms": 44.19865479976579,
+      "p99_ms": 44.704004251834704,
+      "percent_of_total": 68.20322285485268
+    },
+    "choose_solution": {
+      "max_ms": 2.5972489966079593,
+      "mean_ms": 1.2508831100421958,
+      "median_ms": 1.1901540019607637,
+      "p95_ms": 2.4028198538871948,
+      "p99_ms": 2.5954947225545766,
+      "percent_of_total": 2.133995959851685
+    },
+    "core_solver_overhead": {
+      "max_ms": 0.09497400606051087,
+      "mean_ms": 0.06754966001608409,
+      "median_ms": 0.06661099541815929,
+      "p95_ms": 0.08075930054474156,
+      "p99_ms": 0.08850237922160889,
+      "percent_of_total": 0.11523914617315102
+    },
+    "fk_validation": {
+      "max_ms": 10.688611975638196,
+      "mean_ms": 9.48316505549883,
+      "median_ms": 9.71092998952372,
+      "p95_ms": 10.427470750073553,
+      "p99_ms": 10.637552740226965,
+      "percent_of_total": 16.178199028011925
+    },
+    "global_fallback_overhead": {
+      "max_ms": 0.14973300130805,
+      "mean_ms": 0.08869215147569776,
+      "median_ms": 0.0849545031087473,
+      "p95_ms": 0.11882275284733622,
+      "p99_ms": 0.1259492371173111,
+      "percent_of_total": 0.1513080570040698
+    },
+    "joint_limit_check": {
+      "max_ms": 0.030874994990881532,
+      "mean_ms": 0.017546079980093054,
+      "median_ms": 0.017124497389886528,
+      "p95_ms": 0.020566301100188852,
+      "p99_ms": 0.027433760769781674,
+      "percent_of_total": 0.029933463397303402
+    },
+    "parse_input": {
+      "max_ms": 0.022184998670127243,
+      "mean_ms": 0.01561743971251417,
+      "median_ms": 0.01569150117575191,
+      "p95_ms": 0.01810255052987486,
+      "p99_ms": 0.01985751572647133,
+      "percent_of_total": 0.026643219484039773
+    },
+    "qp_refinement": {
+      "max_ms": 1.8528689979575574,
+      "mean_ms": 1.577150323719252,
+      "median_ms": 1.6069690536824055,
+      "p95_ms": 1.77485404201434,
+      "p99_ms": 1.832308679295238,
+      "percent_of_total": 2.690605054841718
+    },
+    "unattributed_python_overhead": {
+      "max_ms": 0.0726590005797334,
+      "mean_ms": 0.039671760096098296,
+      "median_ms": 0.03890949665219523,
+      "p95_ms": 0.050497987103881314,
+      "p99_ms": 0.058343602504464874,
+      "percent_of_total": 0.06767968572413074
+    }
+  },
+  "success_count": 100,
+  "success_rate": 1.0
+}

@@ -1,0 +1,465 @@
+{
+  "cold_import_and_init_time_ms": 139.70540699665435,
+  "cprofile_latency_stats": {
+    "max": 201.6564079967793,
+    "mean": 84.51537208605441,
+    "median": 83.73418349947315,
+    "p90": 94.35463850168162,
+    "p95": 100.22984900351729,
+    "p99": 126.55367755127372
+  },
+  "hotspots": [
+    {
+      "call_count": 1000,
+      "cumtime_ms": 84509.48855300002,
+      "function": "solver_debug_adapter.py:50(solve)",
+      "percall_ms": 84.50948855300001,
+      "primitive_calls": 1000,
+      "tottime_ms": 2.4997000000000003
+    },
+    {
+      "call_count": 1000,
+      "cumtime_ms": 84506.98885300002,
+      "function": "analytic_IK_solver.py:169(solve)",
+      "percall_ms": 84.50698885300002,
+      "primitive_calls": 1000,
+      "tottime_ms": 13.254659
+    },
+    {
+      "call_count": 1000,
+      "cumtime_ms": 84436.22578600001,
+      "function": "ik_solver.py:884(solve_pose_continuous_with_state)",
+      "percall_ms": 84.43622578600001,
+      "primitive_calls": 1000,
+      "tottime_ms": 43.172152000000004
+    },
+    {
+      "call_count": 1000,
+      "cumtime_ms": 83673.495261,
+      "function": "ik_solver.py:698(ik_arm_angle_with_report)",
+      "percall_ms": 83.673495261,
+      "primitive_calls": 1000,
+      "tottime_ms": 18.503623
+    },
+    {
+      "call_count": 1000,
+      "cumtime_ms": 65072.57367600001,
+      "function": "ik_solver.py:415(_scan_theta0_solutions)",
+      "percall_ms": 65.072573676,
+      "primitive_calls": 1000,
+      "tottime_ms": 211.95205800000002
+    },
+    {
+      "call_count": 62000,
+      "cumtime_ms": 64847.52477500001,
+      "function": "ik_solver.py:601(_ik_one_arm_angle)",
+      "percall_ms": 1.045927818951613,
+      "primitive_calls": 62000,
+      "tottime_ms": 7577.466387
+    },
+    {
+      "call_count": 1307000,
+      "cumtime_ms": 22027.770534000003,
+      "function": "ik_solver.py:35(_dh_A)",
+      "percall_ms": 0.01685368824330528,
+      "primitive_calls": 1307000,
+      "tottime_ms": 9325.935664
+    },
+    {
+      "call_count": 2000,
+      "cumtime_ms": 16196.342580999999,
+      "function": "ik_solver.py:528(_optimize_q_with_1d_qp)",
+      "percall_ms": 8.0981712905,
+      "primitive_calls": 2000,
+      "tottime_ms": 87.85423
+    },
+    {
+      "call_count": 7000,
+      "cumtime_ms": 16082.857561,
+      "function": "_minimize.py:735(minimize_scalar)",
+      "percall_ms": 2.297551080142857,
+      "primitive_calls": 7000,
+      "tottime_ms": 33.507006
+    },
+    {
+      "call_count": 7000,
+      "cumtime_ms": 16040.356488000001,
+      "function": "_optimize.py:2171(_minimize_scalar_bounded)",
+      "percall_ms": 2.2914794982857143,
+      "primitive_calls": 7000,
+      "tottime_ms": 667.316192
+    },
+    {
+      "call_count": 42000,
+      "cumtime_ms": 15285.624145000002,
+      "function": "ik_solver.py:488(_qp_1d_objective)",
+      "percall_ms": 0.3639434320238096,
+      "primitive_calls": 42000,
+      "tottime_ms": 426.89517200000006
+    },
+    {
+      "call_count": 259000,
+      "cumtime_ms": 13826.548426000001,
+      "function": "numeric.py:1468(cross)",
+      "percall_ms": 0.053384356857142864,
+      "primitive_calls": 259000,
+      "tottime_ms": 5069.573994
+    },
+    {
+      "call_count": 62000,
+      "cumtime_ms": 10628.641792,
+      "function": "ik_solver.py:319(_elbow_from_arm_angle)",
+      "percall_ms": 0.17142970632258064,
+      "primitive_calls": 62000,
+      "tottime_ms": 1648.9624580000002
+    },
+    {
+      "call_count": 45000,
+      "cumtime_ms": 7869.777959,
+      "function": "ik_solver.py:13(pose_error)",
+      "percall_ms": 0.17488395464444445,
+      "primitive_calls": 45000,
+      "tottime_ms": 725.8557030000001
+    },
+    {
+      "call_count": 777000,
+      "cumtime_ms": 7661.244304,
+      "function": "numeric.py:1393(moveaxis)",
+      "percall_ms": 0.009860031279279279,
+      "primitive_calls": 777000,
+      "tottime_ms": 2686.277767
+    },
+    {
+      "call_count": 45000,
+      "cumtime_ms": 7608.636767,
+      "function": "ik_solver.py:157(fk)",
+      "percall_ms": 0.16908081704444444,
+      "primitive_calls": 45000,
+      "tottime_ms": 209.66237600000002
+    },
+    {
+      "call_count": 45000,
+      "cumtime_ms": 7260.430193,
+      "function": "ik_solver.py:147(fk_all)",
+      "percall_ms": 0.16134289317777778,
+      "primitive_calls": 45000,
+      "tottime_ms": 1353.7996030000002
+    },
+    {
+      "call_count": 496000,
+      "cumtime_ms": 7164.293739000001,
+      "function": "ik_solver.py:166(_within_limits)",
+      "percall_ms": 0.014444140602822581,
+      "primitive_calls": 496000,
+      "tottime_ms": 2686.503364
+    },
+    {
+      "call_count": 124000,
+      "cumtime_ms": 6462.567946,
+      "function": "ik_solver.py:204(_solve_q123_from_swe)",
+      "percall_ms": 0.05211748343548387,
+      "primitive_calls": 124000,
+      "tottime_ms": 2881.5458790000002
+    },
+    {
+      "call_count": 1939000,
+      "cumtime_ms": 6440.354075,
+      "function": "twodim_base.py:158(eye)",
+      "percall_ms": 0.0033214822460030944,
+      "primitive_calls": 1939000,
+      "tottime_ms": 5019.789304000001
+    },
+    {
+      "call_count": 248000,
+      "cumtime_ms": 5837.689994,
+      "function": "ik_solver.py:186(_extract_567_from_T47_paper)",
+      "percall_ms": 0.023539072556451615,
+      "primitive_calls": 248000,
+      "tottime_ms": 2884.8405070000003
+    },
+    {
+      "call_count": 5657074,
+      "cumtime_ms": 5677.1948760000005,
+      "function": "~:0(<built-in method numpy.array>)",
+      "percall_ms": 0.0010035567637969737,
+      "primitive_calls": 5657074,
+      "tottime_ms": 5677.1948760000005
+    },
+    {
+      "call_count": 693054,
+      "cumtime_ms": 4340.429036,
+      "function": "fromnumeric.py:2421(all)",
+      "percall_ms": 0.00626275735512673,
+      "primitive_calls": 693054,
+      "tottime_ms": 772.3299900000001
+    },
+    {
+      "call_count": 1307000,
+      "cumtime_ms": 4158.454794,
+      "function": "ik_solver.py:30(_rotx)",
+      "percall_ms": 0.003181679260902831,
+      "primitive_calls": 1307000,
+      "tottime_ms": 1762.8909650000003
+    },
+    {
+      "call_count": 730000,
+      "cumtime_ms": 4120.847672,
+      "function": "linalg.py:2383(norm)",
+      "percall_ms": 0.0056449968109589035,
+      "primitive_calls": 730000,
+      "tottime_ms": 2442.8235540000005
+    },
+    {
+      "call_count": 1554000,
+      "cumtime_ms": 3799.250626,
+      "function": "numeric.py:1330(normalize_axis_tuple)",
+      "percall_ms": 0.002444820222651223,
+      "primitive_calls": 1554000,
+      "tottime_ms": 2510.842979
+    },
+    {
+      "call_count": 435000,
+      "cumtime_ms": 3767.067711,
+      "function": "fromnumeric.py:2100(clip)",
+      "percall_ms": 0.008659925772413793,
+      "primitive_calls": 435000,
+      "tottime_ms": 518.823031
+    },
+    {
+      "call_count": 693054,
+      "cumtime_ms": 3568.0990460000003,
+      "function": "fromnumeric.py:71(_wrapreduction)",
+      "percall_ms": 0.005148370900391601,
+      "primitive_calls": 693054,
+      "tottime_ms": 1219.8916480000003
+    },
+    {
+      "call_count": 1307000,
+      "cumtime_ms": 3313.610701,
+      "function": "ik_solver.py:25(_rotz)",
+      "percall_ms": 0.0025352798018362663,
+      "primitive_calls": 1307000,
+      "tottime_ms": 1456.3777200000002
+    },
+    {
+      "call_count": 435000,
+      "cumtime_ms": 3248.24468,
+      "function": "fromnumeric.py:53(_wrapfunc)",
+      "percall_ms": 0.007467229149425287,
+      "primitive_calls": 435000,
+      "tottime_ms": 564.897817
+    },
+    {
+      "call_count": 546000,
+      "cumtime_ms": 2818.4628040000002,
+      "function": "ik_solver.py:9(wrap_to_pi)",
+      "percall_ms": 0.005162019787545788,
+      "primitive_calls": 546000,
+      "tottime_ms": 2818.4628040000002
+    },
+    {
+      "call_count": 63000,
+      "cumtime_ms": 2740.627447,
+      "function": "ik_solver.py:288(_compute_swe_from_target)",
+      "percall_ms": 0.043502022968253964,
+      "primitive_calls": 63000,
+      "tottime_ms": 749.965357
+    },
+    {
+      "call_count": 248000,
+      "cumtime_ms": 2547.3809330000004,
+      "function": "ik_solver.py:49(_invert_rigid_transform)",
+      "percall_ms": 0.010271697310483873,
+      "primitive_calls": 248000,
+      "tottime_ms": 1808.43243
+    },
+    {
+      "call_count": 1000,
+      "cumtime_ms": 1976.00974,
+      "function": "ik_solver.py:439(_best_weighted_from_cached)",
+      "percall_ms": 1.97600974,
+      "primitive_calls": 1000,
+      "tottime_ms": 996.8515870000001
+    },
+    {
+      "call_count": 693054,
+      "cumtime_ms": 1845.255022,
+      "function": "~:0(<method 'reduce' of 'numpy.ufunc' objects>)",
+      "percall_ms": 0.0026624981920600702,
+      "primitive_calls": 693054,
+      "tottime_ms": 1845.255022
+    },
+    {
+      "call_count": 63000,
+      "cumtime_ms": 1564.5709440000003,
+      "function": "ik_solver.py:272(_solve_theta4_from_triangle)",
+      "percall_ms": 0.02483445942857143,
+      "primitive_calls": 63000,
+      "tottime_ms": 377.20348800000005
+    },
+    {
+      "call_count": 187000,
+      "cumtime_ms": 1372.102136,
+      "function": "fromnumeric.py:40(_wrapit)",
+      "percall_ms": 0.007337444577540107,
+      "primitive_calls": 187000,
+      "tottime_ms": 594.4242370000001
+    },
+    {
+      "call_count": 435000,
+      "cumtime_ms": 1247.029038,
+      "function": "_methods.py:90(_clip)",
+      "percall_ms": 0.0028667334206896548,
+      "primitive_calls": 435000,
+      "tottime_ms": 1247.029038
+    },
+    {
+      "call_count": 248000,
+      "cumtime_ms": 1194.840345,
+      "function": "~:0(<method 'clip' of 'numpy.generic' objects>)",
+      "percall_ms": 0.004817904616935484,
+      "primitive_calls": 248000,
+      "tottime_ms": 452.71038200000004
+    },
+    {
+      "call_count": 1939000,
+      "cumtime_ms": 1073.698529,
+      "function": "~:0(<built-in method numpy.zeros>)",
+      "percall_ms": 0.0005537382821041774,
+      "primitive_calls": 1939000,
+      "tottime_ms": 1073.698529
+    }
+  ],
+  "init_time_ms": 0.01615899964235723,
+  "init_time_stats": {
+    "max": 0.022416999854613096,
+    "mean": 0.01615899964235723,
+    "median": 0.014302997442428023,
+    "p90": 0.020197000412736088,
+    "p95": 0.021307000133674592,
+    "p99": 0.022194999910425395
+  },
+  "instrumented_latency_stats": {
+    "max": 133.08060399867827,
+    "mean": 69.34506097584381,
+    "median": 66.36066049759393,
+    "p90": 83.80816189965117,
+    "p95": 91.58447734407673,
+    "p99": 105.90618571637603
+  },
+  "instrumented_mean_total_ms": 69.34506097584381,
+  "latency_stats": {
+    "max": 100.49599999911152,
+    "mean": 55.496257419014,
+    "median": 54.99310850063921,
+    "p90": 65.47356019727886,
+    "p95": 71.58591305233129,
+    "p99": 84.8797783246846
+  },
+  "mean_total_ms": 55.496257419014,
+  "n_psi": 61,
+  "num_samples": 1000,
+  "pinocchio_solver_constructed": false,
+  "pinocchio_solver_error": "RuntimeError: Pinocchio is required for Solver. Install with: conda install -c conda-forge pinocchio eigenpy -y",
+  "python_executable": "/home/keyz/miniconda3/envs/RoboTwin/bin/python",
+  "python_version": "3.10.20 (main, Mar 11 2026, 17:46:40) [GCC 14.3.0]",
+  "report_summary": {
+    "candidate_count_stats": {
+      "max": 1.0,
+      "mean": 1.0,
+      "median": 1.0,
+      "p90": 1.0,
+      "p95": 1.0,
+      "p99": 1.0
+    },
+    "method_counts": {
+      "continuous_global_fallback+1DQP": 1000
+    }
+  },
+  "seed": 0,
+  "solver": "Solver",
+  "stage_breakdown": {
+    "candidate_filtering": {
+      "max_ms": 13.352083020436112,
+      "mean_ms": 7.275507831785944,
+      "median_ms": 7.028308540611761,
+      "p95_ms": 9.651154879611566,
+      "p99_ms": 11.718045000816346,
+      "percent_of_total": 10.491746246095811
+    },
+    "candidate_generation": {
+      "max_ms": 91.8941468844423,
+      "mean_ms": 47.14577740208915,
+      "median_ms": 44.735475566994864,
+      "p95_ms": 63.02615779532061,
+      "p99_ms": 72.5890708310908,
+      "percent_of_total": 67.98721745808584
+    },
+    "choose_solution": {
+      "max_ms": 4.9476029962534085,
+      "mean_ms": 1.4236351740109967,
+      "median_ms": 1.288427498366218,
+      "p95_ms": 2.7196900013223058,
+      "p99_ms": 3.8509256643010294,
+      "percent_of_total": 2.052972704872113
+    },
+    "core_solver_overhead": {
+      "max_ms": 0.35113299236400053,
+      "mean_ms": 0.08483466094185133,
+      "median_ms": 0.07834250573068857,
+      "p95_ms": 0.12549510502140035,
+      "p99_ms": 0.17265435453737152,
+      "percent_of_total": 0.12233699090898958
+    },
+    "fk_validation": {
+      "max_ms": 22.086860983108636,
+      "mean_ms": 11.2255468983858,
+      "median_ms": 10.645320973708294,
+      "p95_ms": 14.637780463817762,
+      "p99_ms": 18.606431157531908,
+      "percent_of_total": 16.187954470609224
+    },
+    "global_fallback_overhead": {
+      "max_ms": 0.4136909992666915,
+      "mean_ms": 0.1226549004932167,
+      "median_ms": 0.11019600788131356,
+      "p95_ms": 0.20881589116470423,
+      "p99_ms": 0.29472934809746215,
+      "percent_of_total": 0.17687618810508113
+    },
+    "joint_limit_check": {
+      "max_ms": 0.10583599942037836,
+      "mean_ms": 0.02107713599980343,
+      "median_ms": 0.018599999748403206,
+      "p95_ms": 0.03332825035613495,
+      "p99_ms": 0.054835096598253565,
+      "percent_of_total": 0.030394574181924223
+    },
+    "parse_input": {
+      "max_ms": 0.10087100235978141,
+      "mean_ms": 0.018573117908090353,
+      "median_ms": 0.01704600072116591,
+      "p95_ms": 0.02677345291886011,
+      "p99_ms": 0.0476265121687902,
+      "percent_of_total": 0.0267836204146684
+    },
+    "qp_refinement": {
+      "max_ms": 5.072712017863523,
+      "mean_ms": 1.9806232851624372,
+      "median_ms": 1.8137830338673666,
+      "p95_ms": 2.8354507085168734,
+      "p99_ms": 3.9155387550999867,
+      "percent_of_total": 2.8561850797887147
+    },
+    "unattributed_python_overhead": {
+      "max_ms": 0.19919199985451996,
+      "mean_ms": 0.04683056906651473,
+      "median_ms": 0.04281049405108206,
+      "p95_ms": 0.06935864548722748,
+      "p99_ms": 0.10340436609112653,
+      "percent_of_total": 0.06753266693763244
+    }
+  },
+  "success_count": 1000,
+  "success_rate": 1.0
+}
