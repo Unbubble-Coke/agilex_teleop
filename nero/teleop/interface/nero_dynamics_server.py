@@ -222,8 +222,12 @@ class NeroDynamicsServer:
 
         get_joint_angle_vel_limits = getattr(robot, "get_joint_angle_vel_limits", None)
         get_joint_acc_limits = getattr(robot, "get_joint_acc_limits", None)
+        get_enable_status = getattr(robot, "get_joints_enable_status_list", None)
+        get_crash_protection = getattr(robot, "get_crash_protection_rating", None)
         has_joint_angle_vel_limits = callable(get_joint_angle_vel_limits)
         has_joint_acc_limits = callable(get_joint_acc_limits)
+        has_enable_status = callable(get_enable_status)
+        has_crash_protection = callable(get_crash_protection)
         joint_angle_vel_limits = []
         joint_acc_limits = []
         for joint_index in range(1, 8):
@@ -243,11 +247,13 @@ class NeroDynamicsServer:
             "static_limit_api_available": {
                 "joint_angle_vel_limits": has_joint_angle_vel_limits,
                 "joint_acc_limits": has_joint_acc_limits,
+                "enable_status": has_enable_status,
+                "crash_protection": has_crash_protection,
             },
             "joint_angle_vel_limits": joint_angle_vel_limits,
             "joint_acc_limits": joint_acc_limits,
-            "enable_status": _plain(self._safe_call(robot.get_joints_enable_status_list)),
-            "crash_protection": _plain(self._safe_call(robot.get_crash_protection_rating)),
+            "enable_status": _plain(self._safe_call(get_enable_status)) if has_enable_status else None,
+            "crash_protection": _plain(self._safe_call(get_crash_protection)) if has_crash_protection else None,
             "arm_status": self._read_arm_status(robot),
         }
 
@@ -400,7 +406,10 @@ class NeroDynamicsServer:
                         if command.get("control_mode") == "cartesian_servo_OL":
                             runtime["ik_solver"].init_state(q_cmd)
                         if command.get("ik_success", True):
-                            robot.move_js(command["q_cmd"])
+                            move_js = getattr(robot, "move_js", None)
+                            if not callable(move_js):
+                                raise RuntimeError("move_js API is not available on this Nero driver")
+                            move_js(command["q_cmd"])
 
                     sample = self._read_dynamics_sample(
                         robot_arm=robot_arm,
@@ -761,6 +770,12 @@ class NeroDynamicsServer:
         motor = self._read_motor_states(robot)
         driver = self._read_driver_states(robot) if include_driver else {}
         host_end = time.time()
+        get_enable_status = getattr(robot, "get_joints_enable_status_list", None)
+        enable_status = (
+            _plain(self._safe_call(get_enable_status))
+            if callable(get_enable_status)
+            else None
+        )
         return {
             "schema_version": 1,
             "arm": robot_arm,
@@ -773,14 +788,27 @@ class NeroDynamicsServer:
             "driver": driver,
             "command": command or {},
             "arm_status": self._read_arm_status(robot),
-            "enable_status": _plain(self._safe_call(robot.get_joints_enable_status_list)),
+            "enable_status": enable_status,
         }
 
     def _read_motor_states(self, robot) -> Dict[str, Any]:
         position, velocity, torque, current = [], [], [], []
         timestamps, hz, valid = [], [], []
+        get_motor_states = getattr(robot, "get_motor_states", None)
+        if not callable(get_motor_states):
+            return {
+                "position": [np.nan] * 7,
+                "velocity": [np.nan] * 7,
+                "torque": [np.nan] * 7,
+                "current": [np.nan] * 7,
+                "timestamp": [np.nan] * 7,
+                "hz": [np.nan] * 7,
+                "valid": [False] * 7,
+                "time_skew": np.nan,
+                "api_available": False,
+            }
         for joint_index in range(1, 8):
-            result = self._safe_call(robot.get_motor_states, joint_index)
+            result = self._safe_call(get_motor_states, joint_index)
             if result is None:
                 position.append(np.nan)
                 velocity.append(np.nan)
@@ -811,13 +839,27 @@ class NeroDynamicsServer:
             "hz": hz,
             "valid": valid,
             "time_skew": time_skew,
+            "api_available": True,
         }
 
     def _read_driver_states(self, robot) -> Dict[str, Any]:
         vol, foc_temp, motor_temp, bus_current = [], [], [], []
         timestamps, hz, valid, foc_status = [], [], [], []
+        get_driver_states = getattr(robot, "get_driver_states", None)
+        if not callable(get_driver_states):
+            return {
+                "vol": [np.nan] * 7,
+                "foc_temp": [np.nan] * 7,
+                "motor_temp": [np.nan] * 7,
+                "bus_current": [np.nan] * 7,
+                "timestamp": [np.nan] * 7,
+                "hz": [np.nan] * 7,
+                "valid": [False] * 7,
+                "foc_status": [{} for _ in range(7)],
+                "api_available": False,
+            }
         for joint_index in range(1, 8):
-            result = self._safe_call(robot.get_driver_states, joint_index)
+            result = self._safe_call(get_driver_states, joint_index)
             if result is None:
                 vol.append(np.nan)
                 foc_temp.append(np.nan)
@@ -846,35 +888,49 @@ class NeroDynamicsServer:
             "hz": hz,
             "valid": valid,
             "foc_status": foc_status,
+            "api_available": True,
         }
 
     def _read_joint_angles_message(self, robot) -> Dict[str, Any]:
-        result = self._safe_call(robot.get_joint_angles)
+        get_joint_angles = getattr(robot, "get_joint_angles", None)
+        result = self._safe_call(get_joint_angles) if callable(get_joint_angles) else None
         if result is None:
-            return {"q": [np.nan] * 7, "timestamp": np.nan, "hz": np.nan, "valid": False}
+            return {
+                "q": [np.nan] * 7,
+                "timestamp": np.nan,
+                "hz": np.nan,
+                "valid": False,
+                "api_available": callable(get_joint_angles),
+            }
         return {
             "q": _plain(result.msg),
             "timestamp": _float_or_none(getattr(result, "timestamp", np.nan)),
             "hz": _float_or_none(getattr(result, "hz", np.nan)),
             "valid": True,
+            "api_available": True,
         }
 
     def _read_current_joint_angles(self, robot, timeout: float = 2.0) -> Optional[np.ndarray]:
+        get_joint_angles = getattr(robot, "get_joint_angles", None)
+        if not callable(get_joint_angles):
+            return None
         start_t = time.monotonic()
         while time.monotonic() - start_t < timeout:
-            result = self._safe_call(robot.get_joint_angles)
+            result = self._safe_call(get_joint_angles)
             if result is not None:
                 return np.asarray(result.msg, dtype=float)
             time.sleep(0.005)
         return None
 
     def _read_arm_status(self, robot) -> Dict[str, Any]:
-        result = self._safe_call(robot.get_arm_status)
+        get_arm_status = getattr(robot, "get_arm_status", None)
+        result = self._safe_call(get_arm_status) if callable(get_arm_status) else None
         if result is None:
-            return {"valid": False}
+            return {"valid": False, "api_available": callable(get_arm_status)}
         msg = result.msg
         return {
             "valid": True,
+            "api_available": True,
             "ctrl_mode": _plain(getattr(msg, "ctrl_mode", None)),
             "arm_status": _plain(getattr(msg, "arm_status", None)),
             "motion_status": _plain(getattr(msg, "motion_status", None)),
@@ -1059,8 +1115,14 @@ class NeroDynamicsServer:
 
     def _go_home(self, robot_arm: str, robot) -> bool:
         home = DEFAULT_LEFT_HOME if robot_arm == "left_robot" else DEFAULT_RIGHT_HOME
-        robot.set_speed_percent(30)
-        robot.move_j(home)
+        set_speed_percent = getattr(robot, "set_speed_percent", None)
+        move_j = getattr(robot, "move_j", None)
+        if not callable(move_j):
+            log.error("[%s] move_j API is not available; cannot go home", robot_arm)
+            return False
+        if callable(set_speed_percent):
+            self._safe_call(set_speed_percent, 30)
+        move_j(home)
         return self._wait_for_motion_complete(robot, home, timeout=20.0)
 
     def _wait_for_motion_complete(
@@ -1068,15 +1130,17 @@ class NeroDynamicsServer:
     ) -> bool:
         start_t = time.monotonic()
         target = np.asarray(target_joints, dtype=float)
+        get_joint_angles = getattr(robot, "get_joint_angles", None)
+        get_arm_status = getattr(robot, "get_arm_status", None)
         while time.monotonic() - start_t < timeout:
-            result = self._safe_call(robot.get_joint_angles)
+            result = self._safe_call(get_joint_angles) if callable(get_joint_angles) else None
             if result is None:
                 time.sleep(0.05)
                 continue
             current = np.asarray(result.msg, dtype=float)
             if np.allclose(current, target, atol=tolerance):
                 return True
-            status = self._safe_call(robot.get_arm_status)
+            status = self._safe_call(get_arm_status) if callable(get_arm_status) else None
             if status is not None and getattr(status.msg, "motion_status", None) == 0:
                 return bool(np.allclose(current, target, atol=tolerance))
             time.sleep(0.1)
@@ -1086,7 +1150,11 @@ class NeroDynamicsServer:
         try:
             robot = self._select_robot(robot_arm)
             if robot is not None:
-                robot.electronic_emergency_stop()
+                stop = getattr(robot, "electronic_emergency_stop", None)
+                if callable(stop):
+                    stop()
+                else:
+                    log.warning("[%s] electronic_emergency_stop API is not available", robot_arm)
             return True
         except Exception as exc:
             log.error("[DYNAMICS] stop failed: %s", exc)
