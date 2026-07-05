@@ -358,6 +358,7 @@ class NeroDynamicsServer:
             "random_start_range": config.get("random_start_range", [0.0] * 7),
             "random_start_move_speed_percent": float(config.get("random_start_move_speed_percent", 20.0)),
             "random_start_timeout": float(config.get("random_start_timeout", 20.0)),
+            "random_start_tolerance": float(config.get("random_start_tolerance", 0.05)),
             "random_start_settle_time": float(config.get("random_start_settle_time", 1.0)),
             "amplitudes": config.get("amplitudes", [0.08] * 7),
             "frequencies": config.get("frequencies", [0.07, 0.11, 0.13, 0.17, 0.19, 0.23, 0.29]),
@@ -407,7 +408,16 @@ class NeroDynamicsServer:
                     target=q_start,
                     speed_percent=config["random_start_move_speed_percent"],
                     timeout=config["random_start_timeout"],
+                    tolerance=config["random_start_tolerance"],
                 ):
+                    current_q = self._read_current_joint_angles(robot)
+                    current_text = current_q.tolist() if current_q is not None else None
+                    log.error(
+                        "[%s] failed to reach random_start_q target=%s current=%s",
+                        robot_arm,
+                        q_start.tolist(),
+                        current_text,
+                    )
                     raise RuntimeError("failed to reach random_start_q")
                 if config["random_start_settle_time"] > 0.0:
                     time.sleep(config["random_start_settle_time"])
@@ -1389,6 +1399,7 @@ class NeroDynamicsServer:
         target: np.ndarray,
         speed_percent: float,
         timeout: float,
+        tolerance: float,
     ) -> bool:
         set_speed_percent = getattr(robot, "set_speed_percent", None)
         move_j = getattr(robot, "move_j", None)
@@ -1396,10 +1407,10 @@ class NeroDynamicsServer:
             log.error("[%s] move_j API is not available; cannot move to random start", robot_arm)
             return False
         if callable(set_speed_percent):
-            self._safe_call(set_speed_percent, speed_percent)
+            self._safe_call(set_speed_percent, self._normalize_speed_percent(speed_percent))
         target_list = np.asarray(target, dtype=float).reshape(7).tolist()
         move_j(target_list)
-        return self._wait_for_motion_complete(robot, target_list, timeout=timeout)
+        return self._wait_for_motion_complete(robot, target_list, timeout=timeout, tolerance=tolerance)
 
     def _go_home(self, robot_arm: str, robot) -> bool:
         home = DEFAULT_LEFT_HOME if robot_arm == "left_robot" else DEFAULT_RIGHT_HOME
@@ -1409,9 +1420,12 @@ class NeroDynamicsServer:
             log.error("[%s] move_j API is not available; cannot go home", robot_arm)
             return False
         if callable(set_speed_percent):
-            self._safe_call(set_speed_percent, 30)
+            self._safe_call(set_speed_percent, self._normalize_speed_percent(30))
         move_j(home)
         return self._wait_for_motion_complete(robot, home, timeout=20.0)
+
+    def _normalize_speed_percent(self, speed_percent: float) -> int:
+        return int(np.clip(round(float(speed_percent)), 1, 100))
 
     def _wait_for_motion_complete(
         self, robot, target_joints: list, timeout: float = 10.0, tolerance: float = 0.01
