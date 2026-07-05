@@ -220,16 +220,30 @@ class NeroDynamicsServer:
         if robot is None:
             return {"arm": robot_arm, "ok": False, "reason": "robot_not_connected"}
 
+        get_joint_angle_vel_limits = getattr(robot, "get_joint_angle_vel_limits", None)
+        get_joint_acc_limits = getattr(robot, "get_joint_acc_limits", None)
+        has_joint_angle_vel_limits = callable(get_joint_angle_vel_limits)
+        has_joint_acc_limits = callable(get_joint_acc_limits)
         joint_angle_vel_limits = []
         joint_acc_limits = []
         for joint_index in range(1, 8):
-            joint_angle_vel_limits.append(_plain(self._safe_call(robot.get_joint_angle_vel_limits, joint_index)))
-            joint_acc_limits.append(_plain(self._safe_call(robot.get_joint_acc_limits, joint_index)))
+            if has_joint_angle_vel_limits:
+                joint_angle_vel_limits.append(_plain(self._safe_call(get_joint_angle_vel_limits, joint_index)))
+            else:
+                joint_angle_vel_limits.append(None)
+            if has_joint_acc_limits:
+                joint_acc_limits.append(_plain(self._safe_call(get_joint_acc_limits, joint_index)))
+            else:
+                joint_acc_limits.append(None)
 
         return {
             "arm": robot_arm,
             "ok": True,
             "joint_nums": int(getattr(robot, "joint_nums", 7)),
+            "static_limit_api_available": {
+                "joint_angle_vel_limits": has_joint_angle_vel_limits,
+                "joint_acc_limits": has_joint_acc_limits,
+            },
             "joint_angle_vel_limits": joint_angle_vel_limits,
             "joint_acc_limits": joint_acc_limits,
             "enable_status": _plain(self._safe_call(robot.get_joints_enable_status_list)),
