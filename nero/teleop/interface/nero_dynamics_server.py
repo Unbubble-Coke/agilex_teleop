@@ -193,6 +193,7 @@ class NeroDynamicsServer:
                 "stop_dynamics_collection",
                 "get_collection_status",
                 "get_latest_dynamics_sample",
+                "finalize_dynamics_dataset",
             ],
         }
 
@@ -296,6 +297,34 @@ class NeroDynamicsServer:
         with self._collection_lock:
             return dict(self._status)
 
+    def finalize_dynamics_dataset(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Build the single-dataset NPZ from the appended JSONL file."""
+        cfg = self._normalize_collection_config(config)
+        paths = self._make_episode_paths(cfg)
+        if cfg["save_layout"] != "single_dataset":
+            return {"ok": False, "reason": "save_layout_is_not_single_dataset"}
+        samples = self._load_jsonl_samples(paths["jsonl_path"])
+        if not samples:
+            return {"ok": False, "reason": "dataset_jsonl_empty", "paths": paths}
+        self._save_npz(paths["npz_path"], samples)
+        metadata = self._load_dataset_metadata(paths["metadata_path"])
+        metadata.update(
+            {
+                "finalized": True,
+                "finalized_at": time.time(),
+                "total_samples": len(samples),
+                "valid_samples": int(sum(bool(s.get("valid", False)) for s in samples)),
+                "npz_path": paths["npz_path"],
+            }
+        )
+        self._write_json(paths["metadata_path"], metadata)
+        return {
+            "ok": True,
+            "samples": len(samples),
+            "valid_samples": metadata["valid_samples"],
+            "paths": paths,
+        }
+
     # ==================== Collection implementation ====================
 
     def _normalize_collection_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
@@ -312,11 +341,24 @@ class NeroDynamicsServer:
             "sample_hz": sample_hz,
             "include_driver": bool(config.get("include_driver", True)),
             "output_dir": output_dir,
+            "save_layout": str(config.get("save_layout", "episode_files")),
+            "dataset_name": str(config.get("dataset_name", "")),
+            "num_episodes": int(config.get("num_episodes", 1)),
+            "episode_index": int(config.get("episode_index", 0)),
             "episode_name": str(config.get("episode_name", "")),
+            "reset_dataset": bool(config.get("reset_dataset", False)),
             "max_motor_time_skew_s": float(config.get("max_motor_time_skew_s", 0.005)),
             "move_to_home_first": bool(config.get("move_to_home_first", False)),
             "return_home_after": bool(config.get("return_home_after", False)),
             "max_joint_step_rad": float(config.get("max_joint_step_rad", 0.05)),
+            "joint_limit_margin": float(config.get("joint_limit_margin", 0.05)),
+            "random_start_enabled": bool(config.get("random_start_enabled", False)),
+            "random_start_seed": int(config.get("random_start_seed", 42)),
+            "random_start_center": config.get("random_start_center", []),
+            "random_start_range": config.get("random_start_range", [0.0] * 7),
+            "random_start_move_speed_percent": float(config.get("random_start_move_speed_percent", 20.0)),
+            "random_start_timeout": float(config.get("random_start_timeout", 20.0)),
+            "random_start_settle_time": float(config.get("random_start_settle_time", 1.0)),
             "amplitudes": config.get("amplitudes", [0.08] * 7),
             "frequencies": config.get("frequencies", [0.07, 0.11, 0.13, 0.17, 0.19, 0.23, 0.29]),
             "phases": config.get("phases", [0.0, 0.7, 1.4, 2.1, 2.8, 3.5, 4.2]),
@@ -351,8 +393,24 @@ class NeroDynamicsServer:
             if robot is None:
                 raise RuntimeError(f"{robot_arm} is not connected")
 
+            self._prepare_episode_output(config, episode_paths)
+
             if config["move_to_home_first"]:
                 self._go_home(robot_arm, robot)
+
+            q_start = None
+            if config["random_start_enabled"]:
+                q_start = self._sample_random_start(config, robot_arm)
+                if not self._move_to_joint_target(
+                    robot_arm=robot_arm,
+                    robot=robot,
+                    target=q_start,
+                    speed_percent=config["random_start_move_speed_percent"],
+                    timeout=config["random_start_timeout"],
+                ):
+                    raise RuntimeError("failed to reach random_start_q")
+                if config["random_start_settle_time"] > 0.0:
+                    time.sleep(config["random_start_settle_time"])
 
             q0 = self._read_current_joint_angles(robot)
             if q0 is None:
@@ -360,17 +418,23 @@ class NeroDynamicsServer:
             q_prev_cmd = np.asarray(q0, dtype=float)
             runtime = self._prepare_trajectory_runtime(config, robot_arm, robot, q0)
 
-            os.makedirs(config["output_dir"], exist_ok=True)
+            os.makedirs(episode_paths["root_dir"], exist_ok=True)
+            episode_started_at = time.time()
+            global_sample_start = self._count_jsonl_lines(jsonl_path) if episode_paths["append_jsonl"] else 0
             metadata = {
                 "schema_version": 1,
                 "server": "nero_dynamics_server",
                 "config": config,
+                "dataset_name": episode_paths.get("dataset_name", ""),
+                "episode_index": config["episode_index"],
+                "episode_name": episode_paths["episode_name"],
                 "initial_q": q0.tolist(),
+                "random_start_q": q_start.tolist() if q_start is not None else None,
                 "trajectory_runtime": _plain(runtime.get("metadata", {})),
                 "created_at": time.time(),
             }
-            with open(metadata_path, "w", encoding="utf-8") as f:
-                json.dump(metadata, f, indent=2, ensure_ascii=True)
+            if not episode_paths["append_jsonl"]:
+                self._write_json(metadata_path, metadata)
 
             with self._collection_lock:
                 self._status.update(
@@ -380,14 +444,19 @@ class NeroDynamicsServer:
                         "output_path": npz_path,
                         "metadata_path": metadata_path,
                         "jsonl_path": jsonl_path,
+                        "dataset_name": episode_paths.get("dataset_name", ""),
+                        "episode_index": config["episode_index"],
+                        "episode_name": episode_paths["episode_name"],
                     }
                 )
 
             start_perf = time.perf_counter()
             next_tick = start_perf
             period = 1.0 / config["sample_hz"]
+            episode_sample_index = 0
 
-            with open(jsonl_path, "w", encoding="utf-8") as f_jsonl:
+            jsonl_mode = "a" if episode_paths["append_jsonl"] else "w"
+            with open(jsonl_path, jsonl_mode, encoding="utf-8") as f_jsonl:
                 while not self._stop_event.is_set():
                     now = time.perf_counter()
                     elapsed = now - start_perf
@@ -396,13 +465,32 @@ class NeroDynamicsServer:
 
                     command = self._command_for_elapsed(config, elapsed, q0, runtime)
                     if command is not None:
+                        q_target = np.asarray(command["q_cmd"], dtype=float)
+                        q_target_clipped, joint_limit_clipped = self._clip_to_joint_limits_with_report(
+                            q_target,
+                            robot_arm,
+                            margin=config["joint_limit_margin"],
+                        )
                         q_cmd = self._limit_command_step(
-                            np.asarray(command["q_cmd"], dtype=float),
+                            q_target_clipped,
                             q_prev_cmd,
                             config["max_joint_step_rad"],
                         )
+                        q_cmd, step_joint_limit_clipped = self._clip_to_joint_limits_with_report(
+                            q_cmd,
+                            robot_arm,
+                            margin=config["joint_limit_margin"],
+                        )
                         q_prev_cmd = q_cmd
                         command["q_cmd"] = q_cmd.tolist()
+                        command["joint_limit_margin"] = float(config["joint_limit_margin"])
+                        command["joint_limit_clipped"] = bool(
+                            command.get("joint_limit_clipped", False)
+                            or joint_limit_clipped
+                            or step_joint_limit_clipped
+                        )
+                        if command["joint_limit_clipped"]:
+                            command["q_cmd_unclipped"] = q_target.tolist()
                         if command.get("control_mode") == "cartesian_servo_OL":
                             runtime["ik_solver"].init_state(q_cmd)
                         if command.get("ik_success", True):
@@ -422,9 +510,23 @@ class NeroDynamicsServer:
                     sample_valid, invalid_reason = self._validate_sample(sample, config)
                     sample["valid"] = bool(sample_valid)
                     sample["invalid_reason"] = invalid_reason
+                    global_sample_index = global_sample_start + episode_sample_index
+                    sample.update(
+                        {
+                            "dataset_name": episode_paths.get("dataset_name", ""),
+                            "episode_index": int(config["episode_index"]),
+                            "episode_name": episode_paths["episode_name"],
+                            "episode_sample_index": int(episode_sample_index),
+                            "global_sample_index": int(global_sample_index),
+                            "episode_elapsed": float(elapsed),
+                            "dataset_elapsed": float(global_sample_index / config["sample_hz"]),
+                            "q_start": q_start.tolist() if q_start is not None else q0.tolist(),
+                        }
+                    )
 
                     samples.append(sample)
                     f_jsonl.write(json.dumps(_plain(sample), ensure_ascii=True) + "\n")
+                    episode_sample_index += 1
 
                     with self._collection_lock:
                         self._latest_sample = sample
@@ -437,7 +539,17 @@ class NeroDynamicsServer:
                     if sleep_s > 0:
                         time.sleep(sleep_s)
 
-            self._save_npz(npz_path, samples)
+            if episode_paths["append_jsonl"]:
+                self._update_dataset_metadata(
+                    config=config,
+                    paths=episode_paths,
+                    episode_metadata=metadata,
+                    samples=samples,
+                    global_sample_start=global_sample_start,
+                    finished_at=time.time(),
+                )
+            else:
+                self._save_npz(npz_path, samples)
 
             if config["return_home_after"]:
                 self._go_home(robot_arm, robot)
@@ -996,6 +1108,12 @@ class NeroDynamicsServer:
             host_timestamp_start=np.asarray([s["host_timestamp_start"] for s in samples], dtype=float),
             host_timestamp_end=np.asarray([s["host_timestamp_end"] for s in samples], dtype=float),
             elapsed=np.asarray([s["elapsed"] for s in samples], dtype=float),
+            episode_index=np.asarray([int(s.get("episode_index", 0)) for s in samples], dtype=np.int64),
+            episode_sample_index=np.asarray([int(s.get("episode_sample_index", i)) for i, s in enumerate(samples)], dtype=np.int64),
+            global_sample_index=np.asarray([int(s.get("global_sample_index", i)) for i, s in enumerate(samples)], dtype=np.int64),
+            episode_elapsed=np.asarray([s.get("episode_elapsed", s["elapsed"]) for s in samples], dtype=float),
+            dataset_elapsed=np.asarray([s.get("dataset_elapsed", s["elapsed"]) for s in samples], dtype=float),
+            q_start=np.asarray([s.get("q_start", [np.nan] * 7) for s in samples], dtype=float),
             valid=np.asarray([bool(s.get("valid", False)) for s in samples], dtype=bool),
             joint_angle_q=arr("joint_angles", "q"),
             joint_angle_timestamp=arr("joint_angles", "timestamp"),
@@ -1105,13 +1223,183 @@ class NeroDynamicsServer:
 
     def _make_episode_paths(self, config: Dict[str, Any]) -> Dict[str, str]:
         stamp = time.strftime("%Y%m%d_%H%M%S")
+        save_layout = str(config.get("save_layout", "episode_files"))
+        if save_layout == "single_dataset":
+            dataset_name = config["dataset_name"] or f"{config['arm']}_{config['trajectory']}_{stamp}"
+            dataset_root = os.path.join(config["output_dir"], dataset_name)
+            episode_name = config["episode_name"] or f"episode_{int(config.get('episode_index', 0)):03d}_qstart"
+            base = os.path.join(dataset_root, dataset_name)
+            return {
+                "root_dir": dataset_root,
+                "dataset_name": dataset_name,
+                "episode_name": episode_name,
+                "jsonl_path": base + ".jsonl",
+                "metadata_path": base + ".metadata.json",
+                "npz_path": base + ".npz",
+                "append_jsonl": True,
+            }
+
         episode_name = config["episode_name"] or f"{config['arm']}_{config['trajectory']}_{stamp}"
         base = os.path.join(config["output_dir"], episode_name)
         return {
+            "root_dir": config["output_dir"],
+            "dataset_name": "",
+            "episode_name": episode_name,
             "jsonl_path": base + ".jsonl",
             "metadata_path": base + ".metadata.json",
             "npz_path": base + ".npz",
+            "append_jsonl": False,
         }
+
+    def _prepare_episode_output(self, config: Dict[str, Any], paths: Dict[str, str]) -> None:
+        os.makedirs(paths["root_dir"], exist_ok=True)
+        if not paths["append_jsonl"] or not config.get("reset_dataset", False):
+            return
+        for key in ("jsonl_path", "metadata_path", "npz_path"):
+            path = paths[key]
+            if os.path.exists(path):
+                os.remove(path)
+
+    def _count_jsonl_lines(self, path: str) -> int:
+        if not os.path.exists(path):
+            return 0
+        count = 0
+        with open(path, "r", encoding="utf-8") as f:
+            for count, _ in enumerate(f, start=1):
+                pass
+        return count
+
+    def _load_jsonl_samples(self, path: str) -> list:
+        if not os.path.exists(path):
+            return []
+        samples = []
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    samples.append(json.loads(line))
+        return samples
+
+    def _write_json(self, path: str, value: Dict[str, Any]) -> None:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(_plain(value), f, indent=2, ensure_ascii=True)
+
+    def _load_dataset_metadata(self, path: str) -> Dict[str, Any]:
+        if not os.path.exists(path):
+            return {}
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+
+    def _update_dataset_metadata(
+        self,
+        *,
+        config: Dict[str, Any],
+        paths: Dict[str, str],
+        episode_metadata: Dict[str, Any],
+        samples: list,
+        global_sample_start: int,
+        finished_at: float,
+    ) -> None:
+        metadata = self._load_dataset_metadata(paths["metadata_path"])
+        if not metadata:
+            metadata = {
+                "schema_version": 1,
+                "server": "nero_dynamics_server",
+                "dataset_name": paths["dataset_name"],
+                "save_layout": "single_dataset",
+                "created_at": episode_metadata["created_at"],
+                "config": config,
+                "jsonl_path": paths["jsonl_path"],
+                "npz_path": paths["npz_path"],
+                "episodes": [],
+                "finalized": False,
+            }
+
+        episode_index = int(config["episode_index"])
+        valid_samples = int(sum(bool(s.get("valid", False)) for s in samples))
+        episode_record = {
+            "episode_index": episode_index,
+            "episode_name": paths["episode_name"],
+            "trajectory": config["trajectory"],
+            "arm": config["arm"],
+            "initial_q": episode_metadata.get("initial_q"),
+            "random_start_q": episode_metadata.get("random_start_q"),
+            "trajectory_runtime": episode_metadata.get("trajectory_runtime", {}),
+            "start_global_sample": int(global_sample_start),
+            "num_samples": int(len(samples)),
+            "valid_samples": valid_samples,
+            "invalid_samples": int(len(samples) - valid_samples),
+            "started_at": episode_metadata["created_at"],
+            "finished_at": finished_at,
+        }
+        episodes = [e for e in metadata.get("episodes", []) if int(e.get("episode_index", -1)) != episode_index]
+        episodes.append(episode_record)
+        episodes.sort(key=lambda e: int(e.get("episode_index", 0)))
+        metadata["episodes"] = episodes
+        metadata["total_samples"] = int(sum(int(e.get("num_samples", 0)) for e in episodes))
+        metadata["valid_samples"] = int(sum(int(e.get("valid_samples", 0)) for e in episodes))
+        metadata["updated_at"] = time.time()
+        metadata["finalized"] = False
+        self._write_json(paths["metadata_path"], metadata)
+
+    def _sample_random_start(self, config: Dict[str, Any], robot_arm: str) -> np.ndarray:
+        center = config.get("random_start_center") or self._home_for_arm(robot_arm)
+        center = np.asarray(center, dtype=float).reshape(7)
+        span = np.asarray(config["random_start_range"], dtype=float).reshape(7)
+        seed = int(config["random_start_seed"]) + int(config["episode_index"])
+        rng = np.random.default_rng(seed)
+        q = center + rng.uniform(-span, span, size=7)
+        return self._clip_to_joint_limits(q, robot_arm, margin=config["joint_limit_margin"])
+
+    def _home_for_arm(self, robot_arm: str) -> list:
+        return DEFAULT_LEFT_HOME if robot_arm == "left_robot" else DEFAULT_RIGHT_HOME
+
+    def _clip_to_joint_limits(self, q: np.ndarray, robot_arm: str, margin: float = 0.0) -> np.ndarray:
+        clipped, _ = self._clip_to_joint_limits_with_report(q, robot_arm, margin=margin)
+        return clipped
+
+    def _clip_to_joint_limits_with_report(
+        self, q: np.ndarray, robot_arm: str, margin: float = 0.0
+    ) -> Tuple[np.ndarray, bool]:
+        cfg = self.left_cfg if robot_arm == "left_robot" else self.right_cfg
+        q_arr = np.asarray(q, dtype=float).reshape(7)
+        if cfg is None or "joint_limits" not in cfg:
+            return q_arr.copy(), False
+        out = q_arr.copy()
+        margin = max(0.0, float(margin))
+        for i in range(1, 8):
+            lo, hi = cfg["joint_limits"][f"joint{i}"]
+            safe_lo = float(lo) + margin
+            safe_hi = float(hi) - margin
+            if safe_lo > safe_hi:
+                mid = 0.5 * (float(lo) + float(hi))
+                safe_lo = mid
+                safe_hi = mid
+            out[i - 1] = np.clip(out[i - 1], safe_lo, safe_hi)
+        clipped = bool(np.any(np.abs(out - q_arr) > 1e-12))
+        return out, clipped
+
+    def _move_to_joint_target(
+        self,
+        *,
+        robot_arm: str,
+        robot,
+        target: np.ndarray,
+        speed_percent: float,
+        timeout: float,
+    ) -> bool:
+        set_speed_percent = getattr(robot, "set_speed_percent", None)
+        move_j = getattr(robot, "move_j", None)
+        if not callable(move_j):
+            log.error("[%s] move_j API is not available; cannot move to random start", robot_arm)
+            return False
+        if callable(set_speed_percent):
+            self._safe_call(set_speed_percent, speed_percent)
+        target_list = np.asarray(target, dtype=float).reshape(7).tolist()
+        move_j(target_list)
+        return self._wait_for_motion_complete(robot, target_list, timeout=timeout)
 
     def _go_home(self, robot_arm: str, robot) -> bool:
         home = DEFAULT_LEFT_HOME if robot_arm == "left_robot" else DEFAULT_RIGHT_HOME
