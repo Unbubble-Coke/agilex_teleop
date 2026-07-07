@@ -140,6 +140,10 @@ class NeroDynamicsServer:
             "message": "",
             "samples": 0,
             "invalid_samples": 0,
+            "attempt_samples": 0,
+            "attempt_index": 0,
+            "accepted_episodes": 0,
+            "failed_attempts": 0,
             "unsafe_stop": False,
             "unsafe_reason": "",
             "output_path": "",
@@ -360,6 +364,15 @@ class NeroDynamicsServer:
             "random_start_timeout": float(config.get("random_start_timeout", 20.0)),
             "random_start_tolerance": float(config.get("random_start_tolerance", 0.05)),
             "random_start_settle_time": float(config.get("random_start_settle_time", 1.0)),
+            "retry_on_episode_failure": bool(config.get("retry_on_episode_failure", True)),
+            "max_episode_attempts": int(config.get("max_episode_attempts", 10)),
+            "abort_on_random_start_fail": bool(config.get("abort_on_random_start_fail", True)),
+            "abort_on_joint_limit_clip": bool(config.get("abort_on_joint_limit_clip", True)),
+            "max_joint_limit_clip_samples": int(config.get("max_joint_limit_clip_samples", 0)),
+            "max_invalid_sample_ratio": float(config.get("max_invalid_sample_ratio", 0.05)),
+            "max_consecutive_invalid_samples": int(config.get("max_consecutive_invalid_samples", 20)),
+            "failure_return_home": bool(config.get("failure_return_home", False)),
+            "failure_cooldown_s": float(config.get("failure_cooldown_s", 1.0)),
             "amplitudes": config.get("amplitudes", [0.08] * 7),
             "frequencies": config.get("frequencies", [0.07, 0.11, 0.13, 0.17, 0.19, 0.23, 0.29]),
             "phases": config.get("phases", [0.0, 0.7, 1.4, 2.1, 2.8, 3.5, 4.2]),
@@ -384,7 +397,6 @@ class NeroDynamicsServer:
     def _collection_loop(self, config: Dict[str, Any]) -> None:
         robot_arm = config["arm"]
         robot = self._select_robot(robot_arm)
-        samples = []
         episode_paths = self._make_episode_paths(config)
         jsonl_path = episode_paths["jsonl_path"]
         metadata_path = episode_paths["metadata_path"]
@@ -399,53 +411,7 @@ class NeroDynamicsServer:
             if config["move_to_home_first"]:
                 self._go_home(robot_arm, robot)
 
-            q_start = None
-            if config["random_start_enabled"]:
-                q_start = self._sample_random_start(config, robot_arm)
-                if not self._move_to_joint_target(
-                    robot_arm=robot_arm,
-                    robot=robot,
-                    target=q_start,
-                    speed_percent=config["random_start_move_speed_percent"],
-                    timeout=config["random_start_timeout"],
-                    tolerance=config["random_start_tolerance"],
-                ):
-                    current_q = self._read_current_joint_angles(robot)
-                    current_text = current_q.tolist() if current_q is not None else None
-                    log.error(
-                        "[%s] failed to reach random_start_q target=%s current=%s",
-                        robot_arm,
-                        q_start.tolist(),
-                        current_text,
-                    )
-                    raise RuntimeError("failed to reach random_start_q")
-                if config["random_start_settle_time"] > 0.0:
-                    time.sleep(config["random_start_settle_time"])
-
-            q0 = self._read_current_joint_angles(robot)
-            if q0 is None:
-                raise RuntimeError("failed to read initial joint angles")
-            q_prev_cmd = np.asarray(q0, dtype=float)
-            runtime = self._prepare_trajectory_runtime(config, robot_arm, robot, q0)
-
             os.makedirs(episode_paths["root_dir"], exist_ok=True)
-            episode_started_at = time.time()
-            global_sample_start = self._count_jsonl_lines(jsonl_path) if episode_paths["append_jsonl"] else 0
-            metadata = {
-                "schema_version": 1,
-                "server": "nero_dynamics_server",
-                "config": config,
-                "dataset_name": episode_paths.get("dataset_name", ""),
-                "episode_index": config["episode_index"],
-                "episode_name": episode_paths["episode_name"],
-                "initial_q": q0.tolist(),
-                "random_start_q": q_start.tolist() if q_start is not None else None,
-                "trajectory_runtime": _plain(runtime.get("metadata", {})),
-                "created_at": time.time(),
-            }
-            if not episode_paths["append_jsonl"]:
-                self._write_json(metadata_path, metadata)
-
             with self._collection_lock:
                 self._status.update(
                     {
@@ -457,109 +423,81 @@ class NeroDynamicsServer:
                         "dataset_name": episode_paths.get("dataset_name", ""),
                         "episode_index": config["episode_index"],
                         "episode_name": episode_paths["episode_name"],
+                        "attempt_samples": 0,
+                        "attempt_index": 0,
+                        "accepted_episodes": 0,
+                        "failed_attempts": 0,
                     }
                 )
 
-            start_perf = time.perf_counter()
-            next_tick = start_perf
-            period = 1.0 / config["sample_hz"]
-            episode_sample_index = 0
-
-            jsonl_mode = "a" if episode_paths["append_jsonl"] else "w"
-            with open(jsonl_path, jsonl_mode, encoding="utf-8") as f_jsonl:
-                while not self._stop_event.is_set():
-                    now = time.perf_counter()
-                    elapsed = now - start_perf
-                    if elapsed >= config["duration"]:
-                        break
-
-                    command = self._command_for_elapsed(config, elapsed, q0, runtime)
-                    if command is not None:
-                        q_target = np.asarray(command["q_cmd"], dtype=float)
-                        q_target_clipped, joint_limit_clipped = self._clip_to_joint_limits_with_report(
-                            q_target,
-                            robot_arm,
-                            margin=config["joint_limit_margin"],
-                        )
-                        q_cmd = self._limit_command_step(
-                            q_target_clipped,
-                            q_prev_cmd,
-                            config["max_joint_step_rad"],
-                        )
-                        q_cmd, step_joint_limit_clipped = self._clip_to_joint_limits_with_report(
-                            q_cmd,
-                            robot_arm,
-                            margin=config["joint_limit_margin"],
-                        )
-                        q_prev_cmd = q_cmd
-                        command["q_cmd"] = q_cmd.tolist()
-                        command["joint_limit_margin"] = float(config["joint_limit_margin"])
-                        command["joint_limit_clipped"] = bool(
-                            command.get("joint_limit_clipped", False)
-                            or joint_limit_clipped
-                            or step_joint_limit_clipped
-                        )
-                        if command["joint_limit_clipped"]:
-                            command["q_cmd_unclipped"] = q_target.tolist()
-                        if command.get("control_mode") == "cartesian_servo_OL":
-                            runtime["ik_solver"].init_state(q_cmd)
-                        if command.get("ik_success", True):
-                            move_js = getattr(robot, "move_js", None)
-                            if not callable(move_js):
-                                raise RuntimeError("move_js API is not available on this Nero driver")
-                            move_js(command["q_cmd"])
-
-                    sample = self._read_dynamics_sample(
-                        robot_arm=robot_arm,
-                        robot=robot,
-                        include_driver=config["include_driver"],
-                        command=command,
-                        trajectory=config["trajectory"],
-                        elapsed=elapsed,
-                    )
-                    sample_valid, invalid_reason = self._validate_sample(sample, config)
-                    sample["valid"] = bool(sample_valid)
-                    sample["invalid_reason"] = invalid_reason
-                    global_sample_index = global_sample_start + episode_sample_index
-                    sample.update(
+            max_attempts = max(1, int(config["max_episode_attempts"]))
+            accepted = False
+            last_failure = None
+            for attempt_index in range(max_attempts):
+                if self._stop_event.is_set():
+                    break
+                attempt_config = dict(config)
+                attempt_config["attempt_index"] = attempt_index
+                global_sample_start = self._count_jsonl_lines(jsonl_path) if episode_paths["append_jsonl"] else 0
+                with self._collection_lock:
+                    self._status.update(
                         {
-                            "dataset_name": episode_paths.get("dataset_name", ""),
-                            "episode_index": int(config["episode_index"]),
-                            "episode_name": episode_paths["episode_name"],
-                            "episode_sample_index": int(episode_sample_index),
-                            "global_sample_index": int(global_sample_index),
-                            "episode_elapsed": float(elapsed),
-                            "dataset_elapsed": float(global_sample_index / config["sample_hz"]),
-                            "q_start": q_start.tolist() if q_start is not None else q0.tolist(),
+                            "state": "running",
+                            "message": f"attempt {attempt_index + 1}/{max_attempts}",
+                            "attempt_index": attempt_index,
+                            "attempt_samples": 0,
                         }
                     )
 
-                    samples.append(sample)
-                    f_jsonl.write(json.dumps(_plain(sample), ensure_ascii=True) + "\n")
-                    episode_sample_index += 1
-
-                    with self._collection_lock:
-                        self._latest_sample = sample
-                        self._status["samples"] += 1
-                        if not sample_valid:
-                            self._status["invalid_samples"] += 1
-
-                    next_tick += period
-                    sleep_s = next_tick - time.perf_counter()
-                    if sleep_s > 0:
-                        time.sleep(sleep_s)
-
-            if episode_paths["append_jsonl"]:
-                self._update_dataset_metadata(
-                    config=config,
-                    paths=episode_paths,
-                    episode_metadata=metadata,
-                    samples=samples,
+                result = self._run_episode_attempt(
+                    config=attempt_config,
+                    robot_arm=robot_arm,
+                    robot=robot,
+                    episode_paths=episode_paths,
                     global_sample_start=global_sample_start,
-                    finished_at=time.time(),
                 )
-            else:
-                self._save_npz(npz_path, samples)
+                if result["ok"]:
+                    samples = result["samples"]
+                    metadata = result["metadata"]
+                    self._commit_episode_samples(
+                        config=attempt_config,
+                        paths=episode_paths,
+                        metadata=metadata,
+                        samples=samples,
+                        global_sample_start=global_sample_start,
+                    )
+                    with self._collection_lock:
+                        self._status["samples"] += len(samples)
+                        self._status["invalid_samples"] += int(
+                            sum(not bool(s.get("valid", False)) for s in samples)
+                        )
+                        self._status["accepted_episodes"] = 1
+                    accepted = True
+                    break
+
+                last_failure = result
+                self._record_failed_attempt(episode_paths, result["failure"])
+                with self._collection_lock:
+                    self._status["failed_attempts"] += 1
+                    self._status["message"] = f"attempt failed: {result['failure']['reason']}"
+                log.warning(
+                    "[DYNAMICS] episode %s attempt %s failed: %s",
+                    config["episode_index"],
+                    attempt_index,
+                    result["failure"]["reason"],
+                )
+                if config["failure_return_home"]:
+                    self._go_home(robot_arm, robot)
+                if not config["retry_on_episode_failure"] or result.get("fatal", False):
+                    break
+                if config["failure_cooldown_s"] > 0.0:
+                    time.sleep(config["failure_cooldown_s"])
+
+            if not accepted:
+                reason = "stopped" if self._stop_event.is_set() else "max_episode_attempts_exhausted"
+                if last_failure is not None:
+                    reason = f"{reason}:{last_failure['failure']['reason']}"
+                raise RuntimeError(reason)
 
             if config["return_home_after"]:
                 self._go_home(robot_arm, robot)
@@ -586,6 +524,332 @@ class NeroDynamicsServer:
                         "finished_at": time.time(),
                     }
                 )
+
+    def _run_episode_attempt(
+        self,
+        *,
+        config: Dict[str, Any],
+        robot_arm: str,
+        robot,
+        episode_paths: Dict[str, Any],
+        global_sample_start: int,
+    ) -> Dict[str, Any]:
+        attempt_index = int(config.get("attempt_index", 0))
+        samples = []
+        q_start = None
+
+        if config["random_start_enabled"]:
+            q_start = self._sample_random_start(config, robot_arm)
+            reached = self._move_to_joint_target(
+                robot_arm=robot_arm,
+                robot=robot,
+                target=q_start,
+                speed_percent=config["random_start_move_speed_percent"],
+                timeout=config["random_start_timeout"],
+                tolerance=config["random_start_tolerance"],
+            )
+            if not reached:
+                current_q = self._read_current_joint_angles(robot)
+                current_text = current_q.tolist() if current_q is not None else None
+                log.error(
+                    "[%s] failed to reach random_start_q target=%s current=%s",
+                    robot_arm,
+                    q_start.tolist(),
+                    current_text,
+                )
+                return {
+                    "ok": False,
+                    "fatal": not config["abort_on_random_start_fail"],
+                    "failure": self._make_attempt_failure(
+                        config=config,
+                        reason="random_start_unreachable",
+                        target_q_start=q_start.tolist(),
+                        current_q=current_text,
+                        samples=samples,
+                    ),
+                }
+            if config["random_start_settle_time"] > 0.0:
+                time.sleep(config["random_start_settle_time"])
+
+        q0 = self._read_current_joint_angles(robot)
+        if q0 is None:
+            return {
+                "ok": False,
+                "fatal": True,
+                "failure": self._make_attempt_failure(
+                    config=config,
+                    reason="failed_to_read_initial_joint_angles",
+                    target_q_start=q_start.tolist() if q_start is not None else None,
+                    current_q=None,
+                    samples=samples,
+                ),
+            }
+
+        q_prev_cmd = np.asarray(q0, dtype=float)
+        runtime = self._prepare_trajectory_runtime(config, robot_arm, robot, q0)
+        episode_metadata = {
+            "schema_version": 1,
+            "server": "nero_dynamics_server",
+            "config": config,
+            "dataset_name": episode_paths.get("dataset_name", ""),
+            "episode_index": config["episode_index"],
+            "attempt_index": attempt_index,
+            "episode_name": episode_paths["episode_name"],
+            "initial_q": q0.tolist(),
+            "random_start_q": q_start.tolist() if q_start is not None else None,
+            "trajectory_runtime": _plain(runtime.get("metadata", {})),
+            "created_at": time.time(),
+        }
+
+        start_perf = time.perf_counter()
+        next_tick = start_perf
+        period = 1.0 / config["sample_hz"]
+        episode_sample_index = 0
+        invalid_count = 0
+        consecutive_invalid = 0
+        joint_limit_clip_count = 0
+
+        while not self._stop_event.is_set():
+            now = time.perf_counter()
+            elapsed = now - start_perf
+            if elapsed >= config["duration"]:
+                break
+
+            command = self._command_for_elapsed(config, elapsed, q0, runtime)
+            if command is not None:
+                q_target = np.asarray(command["q_cmd"], dtype=float)
+                q_target_clipped, joint_limit_clipped = self._clip_to_joint_limits_with_report(
+                    q_target,
+                    robot_arm,
+                    margin=config["joint_limit_margin"],
+                )
+                q_cmd = self._limit_command_step(
+                    q_target_clipped,
+                    q_prev_cmd,
+                    config["max_joint_step_rad"],
+                )
+                q_cmd, step_joint_limit_clipped = self._clip_to_joint_limits_with_report(
+                    q_cmd,
+                    robot_arm,
+                    margin=config["joint_limit_margin"],
+                )
+                q_prev_cmd = q_cmd
+                command["q_cmd"] = q_cmd.tolist()
+                command["joint_limit_margin"] = float(config["joint_limit_margin"])
+                command["joint_limit_clipped"] = bool(
+                    command.get("joint_limit_clipped", False)
+                    or joint_limit_clipped
+                    or step_joint_limit_clipped
+                )
+                if command["joint_limit_clipped"]:
+                    command["q_cmd_unclipped"] = q_target.tolist()
+                    joint_limit_clip_count += 1
+                if command.get("control_mode") == "cartesian_servo_OL":
+                    runtime["ik_solver"].init_state(q_cmd)
+                if command.get("ik_success", True):
+                    move_js = getattr(robot, "move_js", None)
+                    if not callable(move_js):
+                        raise RuntimeError("move_js API is not available on this Nero driver")
+                    move_js(command["q_cmd"])
+
+            sample = self._read_dynamics_sample(
+                robot_arm=robot_arm,
+                robot=robot,
+                include_driver=config["include_driver"],
+                command=command,
+                trajectory=config["trajectory"],
+                elapsed=elapsed,
+            )
+            sample_valid, invalid_reason = self._validate_sample(sample, config)
+            sample["valid"] = bool(sample_valid)
+            sample["invalid_reason"] = invalid_reason
+            if sample_valid:
+                consecutive_invalid = 0
+            else:
+                invalid_count += 1
+                consecutive_invalid += 1
+
+            global_sample_index = global_sample_start + episode_sample_index
+            sample.update(
+                {
+                    "dataset_name": episode_paths.get("dataset_name", ""),
+                    "episode_index": int(config["episode_index"]),
+                    "attempt_index": int(attempt_index),
+                    "episode_name": episode_paths["episode_name"],
+                    "episode_sample_index": int(episode_sample_index),
+                    "global_sample_index": int(global_sample_index),
+                    "episode_elapsed": float(elapsed),
+                    "dataset_elapsed": float(global_sample_index / config["sample_hz"]),
+                    "q_start": q_start.tolist() if q_start is not None else q0.tolist(),
+                }
+            )
+            samples.append(sample)
+
+            with self._collection_lock:
+                self._latest_sample = sample
+                self._status["attempt_samples"] = len(samples)
+
+            abort_reason = self._episode_abort_reason(
+                sample=sample,
+                config=config,
+                invalid_count=invalid_count,
+                consecutive_invalid=consecutive_invalid,
+                joint_limit_clip_count=joint_limit_clip_count,
+            )
+            if abort_reason:
+                return {
+                    "ok": False,
+                    "fatal": False,
+                    "failure": self._make_attempt_failure(
+                        config=config,
+                        reason=abort_reason,
+                        target_q_start=q_start.tolist() if q_start is not None else None,
+                        current_q=sample.get("joint_angles", {}).get("q"),
+                        samples=samples,
+                    ),
+                }
+
+            episode_sample_index += 1
+            next_tick += period
+            sleep_s = next_tick - time.perf_counter()
+            if sleep_s > 0:
+                time.sleep(sleep_s)
+
+        if self._stop_event.is_set():
+            return {
+                "ok": False,
+                "fatal": True,
+                "failure": self._make_attempt_failure(
+                    config=config,
+                    reason="stop_requested",
+                    target_q_start=q_start.tolist() if q_start is not None else None,
+                    current_q=samples[-1].get("joint_angles", {}).get("q") if samples else None,
+                    samples=samples,
+                ),
+            }
+
+        final_invalid_ratio = (invalid_count / len(samples)) if samples else 1.0
+        if final_invalid_ratio > config["max_invalid_sample_ratio"]:
+            return {
+                "ok": False,
+                "fatal": False,
+                "failure": self._make_attempt_failure(
+                    config=config,
+                    reason=f"invalid_sample_ratio:{final_invalid_ratio:.4f}",
+                    target_q_start=q_start.tolist() if q_start is not None else None,
+                    current_q=samples[-1].get("joint_angles", {}).get("q") if samples else None,
+                    samples=samples,
+                ),
+            }
+
+        episode_metadata["finished_at"] = time.time()
+        episode_metadata["num_samples"] = len(samples)
+        episode_metadata["valid_samples"] = int(sum(bool(s.get("valid", False)) for s in samples))
+        episode_metadata["invalid_samples"] = int(len(samples) - episode_metadata["valid_samples"])
+        episode_metadata["joint_limit_clip_samples"] = int(joint_limit_clip_count)
+        return {"ok": True, "samples": samples, "metadata": episode_metadata}
+
+    def _episode_abort_reason(
+        self,
+        *,
+        sample: Dict[str, Any],
+        config: Dict[str, Any],
+        invalid_count: int,
+        consecutive_invalid: int,
+        joint_limit_clip_count: int,
+    ) -> str:
+        if (
+            config["abort_on_joint_limit_clip"]
+            and joint_limit_clip_count > config["max_joint_limit_clip_samples"]
+        ):
+            return "joint_limit_clipped"
+        if self._sample_has_joint_angle_limit(sample):
+            return "joint_angle_limit_status"
+        if consecutive_invalid > config["max_consecutive_invalid_samples"]:
+            return "too_many_consecutive_invalid_samples"
+        sample_count = max(1, int(sample.get("episode_sample_index", 0)) + 1)
+        if sample_count >= 10 and invalid_count / sample_count > config["max_invalid_sample_ratio"]:
+            return "invalid_sample_ratio"
+        return ""
+
+    def _sample_has_joint_angle_limit(self, sample: Dict[str, Any]) -> bool:
+        err_status = sample.get("arm_status", {}).get("err_status", {})
+        if not isinstance(err_status, dict):
+            return False
+        return any("angle_limit" in str(key) and bool(value) for key, value in err_status.items())
+
+    def _make_attempt_failure(
+        self,
+        *,
+        config: Dict[str, Any],
+        reason: str,
+        target_q_start,
+        current_q,
+        samples: list,
+    ) -> Dict[str, Any]:
+        valid_samples = int(sum(bool(s.get("valid", False)) for s in samples))
+        return {
+            "episode_index": int(config.get("episode_index", 0)),
+            "attempt_index": int(config.get("attempt_index", 0)),
+            "episode_name": str(config.get("episode_name", "")),
+            "reason": reason,
+            "target_q_start": _plain(target_q_start),
+            "current_q": _plain(current_q),
+            "num_samples": int(len(samples)),
+            "valid_samples": valid_samples,
+            "invalid_samples": int(len(samples) - valid_samples),
+            "created_at": time.time(),
+        }
+
+    def _commit_episode_samples(
+        self,
+        *,
+        config: Dict[str, Any],
+        paths: Dict[str, Any],
+        metadata: Dict[str, Any],
+        samples: list,
+        global_sample_start: int,
+    ) -> None:
+        with open(paths["jsonl_path"], "a" if paths["append_jsonl"] else "w", encoding="utf-8") as f_jsonl:
+            for sample in samples:
+                f_jsonl.write(json.dumps(_plain(sample), ensure_ascii=True) + "\n")
+
+        if paths["append_jsonl"]:
+            self._update_dataset_metadata(
+                config=config,
+                paths=paths,
+                episode_metadata=metadata,
+                samples=samples,
+                global_sample_start=global_sample_start,
+                finished_at=time.time(),
+            )
+        else:
+            existing = self._load_dataset_metadata(paths["metadata_path"])
+            if existing.get("failed_attempts"):
+                metadata["failed_attempts"] = existing["failed_attempts"]
+            self._write_json(paths["metadata_path"], metadata)
+            self._save_npz(paths["npz_path"], samples)
+
+    def _record_failed_attempt(self, paths: Dict[str, Any], failure: Dict[str, Any]) -> None:
+        metadata = self._load_dataset_metadata(paths["metadata_path"])
+        if not metadata:
+            metadata = {
+                "schema_version": 1,
+                "server": "nero_dynamics_server",
+                "dataset_name": paths.get("dataset_name", ""),
+                "save_layout": "single_dataset" if paths.get("append_jsonl") else "episode_files",
+                "created_at": time.time(),
+                "jsonl_path": paths["jsonl_path"],
+                "npz_path": paths["npz_path"],
+                "episodes": [],
+                "failed_attempts": [],
+                "finalized": False,
+            }
+        failed_attempts = list(metadata.get("failed_attempts", []))
+        failed_attempts.append(_plain(failure))
+        metadata["failed_attempts"] = failed_attempts
+        metadata["updated_at"] = time.time()
+        self._write_json(paths["metadata_path"], metadata)
 
     def _command_for_elapsed(
         self,
@@ -1324,13 +1588,27 @@ class NeroDynamicsServer:
                 "jsonl_path": paths["jsonl_path"],
                 "npz_path": paths["npz_path"],
                 "episodes": [],
+                "failed_attempts": [],
                 "finalized": False,
             }
+        else:
+            metadata.setdefault("schema_version", 1)
+            metadata.setdefault("server", "nero_dynamics_server")
+            metadata.setdefault("dataset_name", paths.get("dataset_name", ""))
+            metadata.setdefault("save_layout", "single_dataset")
+            metadata.setdefault("created_at", episode_metadata["created_at"])
+            metadata.setdefault("config", config)
+            metadata.setdefault("jsonl_path", paths["jsonl_path"])
+            metadata.setdefault("npz_path", paths["npz_path"])
+            metadata.setdefault("episodes", [])
+            metadata.setdefault("failed_attempts", [])
+            metadata.setdefault("finalized", False)
 
         episode_index = int(config["episode_index"])
         valid_samples = int(sum(bool(s.get("valid", False)) for s in samples))
         episode_record = {
             "episode_index": episode_index,
+            "attempt_index": int(config.get("attempt_index", 0)),
             "episode_name": paths["episode_name"],
             "trajectory": config["trajectory"],
             "arm": config["arm"],
@@ -1341,6 +1619,9 @@ class NeroDynamicsServer:
             "num_samples": int(len(samples)),
             "valid_samples": valid_samples,
             "invalid_samples": int(len(samples) - valid_samples),
+            "joint_limit_clip_samples": int(
+                sum(bool(s.get("command", {}).get("joint_limit_clipped", False)) for s in samples)
+            ),
             "started_at": episode_metadata["created_at"],
             "finished_at": finished_at,
         }
@@ -1358,7 +1639,7 @@ class NeroDynamicsServer:
         center = config.get("random_start_center") or self._home_for_arm(robot_arm)
         center = np.asarray(center, dtype=float).reshape(7)
         span = np.asarray(config["random_start_range"], dtype=float).reshape(7)
-        seed = int(config["random_start_seed"]) + int(config["episode_index"])
+        seed = int(config["random_start_seed"]) + int(config["episode_index"]) * 1000 + int(config.get("attempt_index", 0))
         rng = np.random.default_rng(seed)
         q = center + rng.uniform(-span, span, size=7)
         return self._clip_to_joint_limits(q, robot_arm, margin=config["joint_limit_margin"])
