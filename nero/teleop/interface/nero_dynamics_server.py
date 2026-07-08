@@ -374,6 +374,7 @@ class NeroDynamicsServer:
             "abort_on_joint_limit_clip": bool(config.get("abort_on_joint_limit_clip", True)),
             "max_joint_limit_clip_samples": int(config.get("max_joint_limit_clip_samples", 0)),
             "max_invalid_sample_ratio": float(config.get("max_invalid_sample_ratio", 0.05)),
+            "min_samples_before_invalid_ratio_check": int(config.get("min_samples_before_invalid_ratio_check", 100)),
             "max_consecutive_invalid_samples": int(config.get("max_consecutive_invalid_samples", 20)),
             "failure_return_home": bool(config.get("failure_return_home", False)),
             "failure_cooldown_s": float(config.get("failure_cooldown_s", 1.0)),
@@ -774,7 +775,8 @@ class NeroDynamicsServer:
         if consecutive_invalid > config["max_consecutive_invalid_samples"]:
             return "too_many_consecutive_invalid_samples"
         sample_count = max(1, int(sample.get("episode_sample_index", 0)) + 1)
-        if sample_count >= 10 and invalid_count / sample_count > config["max_invalid_sample_ratio"]:
+        min_ratio_samples = max(1, int(config["min_samples_before_invalid_ratio_check"]))
+        if sample_count >= min_ratio_samples and invalid_count / sample_count > config["max_invalid_sample_ratio"]:
             return "invalid_sample_ratio"
         return ""
 
@@ -794,6 +796,12 @@ class NeroDynamicsServer:
         samples: list,
     ) -> Dict[str, Any]:
         valid_samples = int(sum(bool(s.get("valid", False)) for s in samples))
+        invalid_reason_counts: Dict[str, int] = {}
+        for sample in samples:
+            if bool(sample.get("valid", False)):
+                continue
+            invalid_reason = str(sample.get("invalid_reason", "") or "unknown")
+            invalid_reason_counts[invalid_reason] = invalid_reason_counts.get(invalid_reason, 0) + 1
         return {
             "episode_index": int(config.get("episode_index", 0)),
             "attempt_index": int(config.get("attempt_index", 0)),
@@ -804,6 +812,7 @@ class NeroDynamicsServer:
             "num_samples": int(len(samples)),
             "valid_samples": valid_samples,
             "invalid_samples": int(len(samples) - valid_samples),
+            "invalid_reason_counts": invalid_reason_counts,
             "created_at": time.time(),
         }
 
