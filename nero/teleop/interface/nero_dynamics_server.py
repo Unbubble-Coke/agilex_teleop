@@ -368,6 +368,11 @@ class NeroDynamicsServer:
             "random_start_startup_grace_s": float(config.get("random_start_startup_grace_s", 1.0)),
             "random_start_stationary_checks": int(config.get("random_start_stationary_checks", 5)),
             "random_start_settle_time": float(config.get("random_start_settle_time", 1.0)),
+            "random_start_check_tcp_z": bool(config.get("random_start_check_tcp_z", True)),
+            "random_start_min_tcp_z": float(config.get("random_start_min_tcp_z", 0.15)),
+            "random_start_max_resample": int(config.get("random_start_max_resample", 100)),
+            "abort_on_tcp_z_unsafe": bool(config.get("abort_on_tcp_z_unsafe", True)),
+            "min_command_tcp_z": float(config.get("min_command_tcp_z", 0.12)),
             "retry_on_episode_failure": bool(config.get("retry_on_episode_failure", True)),
             "max_episode_attempts": int(config.get("max_episode_attempts", 10)),
             "abort_on_random_start_fail": bool(config.get("abort_on_random_start_fail", True)),
@@ -542,9 +547,24 @@ class NeroDynamicsServer:
         attempt_index = int(config.get("attempt_index", 0))
         samples = []
         q_start = None
+        start_result: Dict[str, Any] = {}
 
         if config["random_start_enabled"]:
-            q_start = self._sample_random_start(config, robot_arm)
+            start_result = self._sample_safe_random_start(config, robot_arm)
+            if not start_result["ok"]:
+                return {
+                    "ok": False,
+                    "fatal": False,
+                    "failure": self._make_attempt_failure(
+                        config=config,
+                        reason=start_result["reason"],
+                        target_q_start=start_result.get("target_q_start"),
+                        current_q=None,
+                        samples=samples,
+                        extra=start_result,
+                    ),
+                }
+            q_start = start_result["q_start"]
             reached = self._move_to_joint_target(
                 robot_arm=robot_arm,
                 robot=robot,
@@ -604,6 +624,7 @@ class NeroDynamicsServer:
             "episode_name": episode_paths["episode_name"],
             "initial_q": q0.tolist(),
             "random_start_q": q_start.tolist() if q_start is not None else None,
+            "random_start_tcp_z_report": _plain(start_result.get("tcp_z_report", {})),
             "trajectory_runtime": _plain(runtime.get("metadata", {})),
             "created_at": time.time(),
         }
@@ -653,6 +674,26 @@ class NeroDynamicsServer:
                     joint_limit_clip_count += 1
                 if command.get("control_mode") == "cartesian_servo_OL":
                     runtime["ik_solver"].init_state(q_cmd)
+                if config["abort_on_tcp_z_unsafe"]:
+                    tcp_report = self._tcp_z_safety_report(q_cmd, robot_arm, config["min_command_tcp_z"])
+                    command["tcp_z"] = tcp_report.get("tcp_z")
+                    command["tcp_z_safe"] = bool(tcp_report.get("ok", False))
+                    if not tcp_report.get("ok", False):
+                        return {
+                            "ok": False,
+                            "fatal": False,
+                            "failure": self._make_attempt_failure(
+                                config=config,
+                                reason="command_tcp_z_unsafe",
+                                target_q_start=q_start.tolist() if q_start is not None else None,
+                                current_q=q_prev_cmd.tolist(),
+                                samples=samples,
+                                extra={
+                                    "q_cmd": q_cmd.tolist(),
+                                    "tcp_z_report": tcp_report,
+                                },
+                            ),
+                        }
                 if command.get("ik_success", True):
                     move_js = getattr(robot, "move_js", None)
                     if not callable(move_js):
@@ -794,6 +835,7 @@ class NeroDynamicsServer:
         target_q_start,
         current_q,
         samples: list,
+        extra: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         valid_samples = int(sum(bool(s.get("valid", False)) for s in samples))
         invalid_reason_counts: Dict[str, int] = {}
@@ -802,7 +844,7 @@ class NeroDynamicsServer:
                 continue
             invalid_reason = str(sample.get("invalid_reason", "") or "unknown")
             invalid_reason_counts[invalid_reason] = invalid_reason_counts.get(invalid_reason, 0) + 1
-        return {
+        failure = {
             "episode_index": int(config.get("episode_index", 0)),
             "attempt_index": int(config.get("attempt_index", 0)),
             "episode_name": str(config.get("episode_name", "")),
@@ -815,6 +857,9 @@ class NeroDynamicsServer:
             "invalid_reason_counts": invalid_reason_counts,
             "created_at": time.time(),
         }
+        if extra:
+            failure["details"] = _plain(extra)
+        return failure
 
     def _commit_episode_samples(
         self,
@@ -1651,7 +1696,12 @@ class NeroDynamicsServer:
         self._write_json(paths["metadata_path"], metadata)
 
     def _sample_random_start(self, config: Dict[str, Any], robot_arm: str) -> np.ndarray:
-        seed = int(config["random_start_seed"]) + int(config["episode_index"]) * 1000 + int(config.get("attempt_index", 0))
+        seed = (
+            int(config["random_start_seed"])
+            + int(config["episode_index"]) * 1000
+            + int(config.get("attempt_index", 0)) * 100
+            + int(config.get("resample_index", 0))
+        )
         rng = np.random.default_rng(seed)
 
         if config.get("random_start_min") and config.get("random_start_max"):
@@ -1666,6 +1716,68 @@ class NeroDynamicsServer:
             span = np.asarray(config["random_start_range"], dtype=float).reshape(7)
             q = center + rng.uniform(-span, span, size=7)
         return self._clip_to_joint_limits(q, robot_arm, margin=config["joint_limit_margin"])
+
+    def _sample_safe_random_start(self, config: Dict[str, Any], robot_arm: str) -> Dict[str, Any]:
+        max_resample = max(1, int(config["random_start_max_resample"]))
+        last_q = None
+        last_report: Dict[str, Any] = {}
+        for resample_index in range(max_resample):
+            sample_config = dict(config)
+            sample_config["resample_index"] = resample_index
+            q = self._sample_random_start(sample_config, robot_arm)
+            last_q = q
+            if not config["random_start_check_tcp_z"]:
+                return {
+                    "ok": True,
+                    "q_start": q,
+                    "target_q_start": q.tolist(),
+                    "resample_index": resample_index,
+                }
+            last_report = self._tcp_z_safety_report(q, robot_arm, config["random_start_min_tcp_z"])
+            if last_report.get("ok", False):
+                return {
+                    "ok": True,
+                    "q_start": q,
+                    "target_q_start": q.tolist(),
+                    "resample_index": resample_index,
+                    "tcp_z_report": last_report,
+                }
+        return {
+            "ok": False,
+            "reason": "random_start_tcp_z_unsafe",
+            "target_q_start": last_q.tolist() if last_q is not None else None,
+            "resample_attempts": max_resample,
+            "tcp_z_report": last_report,
+        }
+
+    def _tcp_pose_from_q(self, q: np.ndarray, robot_arm: str) -> np.ndarray:
+        ik_solver = self._select_ik_solver(robot_arm)
+        if ik_solver is None:
+            raise RuntimeError(f"{robot_arm} IK/FK solver is not available")
+        return np.asarray(ik_solver.fk_pose(q), dtype=float).reshape(6)
+
+    def _tcp_z_safety_report(self, q: np.ndarray, robot_arm: str, min_z: float) -> Dict[str, Any]:
+        try:
+            tcp_pose = self._tcp_pose_from_q(q, robot_arm)
+            tcp_z = float(tcp_pose[2])
+            min_z = float(min_z)
+            return {
+                "ok": bool(tcp_z >= min_z),
+                "tcp_z": tcp_z,
+                "min_tcp_z": min_z,
+                "tcp_pose": tcp_pose.tolist(),
+                "reason": "" if tcp_z >= min_z else "tcp_z_below_min",
+            }
+        except Exception as exc:
+            log.warning("[DYNAMICS] TCP z safety check failed: %s", exc)
+            return {
+                "ok": False,
+                "tcp_z": None,
+                "min_tcp_z": float(min_z),
+                "tcp_pose": None,
+                "reason": "tcp_fk_unavailable",
+                "error": str(exc),
+            }
 
     def _home_for_arm(self, robot_arm: str) -> list:
         return DEFAULT_LEFT_HOME if robot_arm == "left_robot" else DEFAULT_RIGHT_HOME
