@@ -365,6 +365,8 @@ class NeroDynamicsServer:
             "random_start_move_speed_percent": float(config.get("random_start_move_speed_percent", 20.0)),
             "random_start_timeout": float(config.get("random_start_timeout", 20.0)),
             "random_start_tolerance": float(config.get("random_start_tolerance", 0.05)),
+            "random_start_startup_grace_s": float(config.get("random_start_startup_grace_s", 1.0)),
+            "random_start_stationary_checks": int(config.get("random_start_stationary_checks", 5)),
             "random_start_settle_time": float(config.get("random_start_settle_time", 1.0)),
             "retry_on_episode_failure": bool(config.get("retry_on_episode_failure", True)),
             "max_episode_attempts": int(config.get("max_episode_attempts", 10)),
@@ -549,6 +551,8 @@ class NeroDynamicsServer:
                 speed_percent=config["random_start_move_speed_percent"],
                 timeout=config["random_start_timeout"],
                 tolerance=config["random_start_tolerance"],
+                startup_grace_s=config["random_start_startup_grace_s"],
+                stationary_checks=config["random_start_stationary_checks"],
             )
             if not reached:
                 current_q = self._read_current_joint_angles(robot)
@@ -1691,6 +1695,8 @@ class NeroDynamicsServer:
         speed_percent: float,
         timeout: float,
         tolerance: float,
+        startup_grace_s: float,
+        stationary_checks: int,
     ) -> bool:
         set_speed_percent = getattr(robot, "set_speed_percent", None)
         move_j = getattr(robot, "move_j", None)
@@ -1701,7 +1707,14 @@ class NeroDynamicsServer:
             self._safe_call(set_speed_percent, self._normalize_speed_percent(speed_percent))
         target_list = np.asarray(target, dtype=float).reshape(7).tolist()
         move_j(target_list)
-        return self._wait_for_motion_complete(robot, target_list, timeout=timeout, tolerance=tolerance)
+        return self._wait_for_motion_complete(
+            robot,
+            target_list,
+            timeout=timeout,
+            tolerance=tolerance,
+            startup_grace_s=startup_grace_s,
+            stationary_checks=stationary_checks,
+        )
 
     def _go_home(self, robot_arm: str, robot) -> bool:
         home = DEFAULT_LEFT_HOME if robot_arm == "left_robot" else DEFAULT_RIGHT_HOME
@@ -1719,13 +1732,23 @@ class NeroDynamicsServer:
         return int(np.clip(round(float(speed_percent)), 1, 100))
 
     def _wait_for_motion_complete(
-        self, robot, target_joints: list, timeout: float = 10.0, tolerance: float = 0.01
+        self,
+        robot,
+        target_joints: list,
+        timeout: float = 10.0,
+        tolerance: float = 0.01,
+        startup_grace_s: float = 0.0,
+        stationary_checks: int = 1,
     ) -> bool:
         start_t = time.monotonic()
         target = np.asarray(target_joints, dtype=float)
         get_joint_angles = getattr(robot, "get_joint_angles", None)
         get_arm_status = getattr(robot, "get_arm_status", None)
+        stopped_count = 0
+        stationary_checks = max(1, int(stationary_checks))
+        startup_grace_s = max(0.0, float(startup_grace_s))
         while time.monotonic() - start_t < timeout:
+            elapsed = time.monotonic() - start_t
             result = self._safe_call(get_joint_angles) if callable(get_joint_angles) else None
             if result is None:
                 time.sleep(0.05)
@@ -1734,9 +1757,34 @@ class NeroDynamicsServer:
             if np.allclose(current, target, atol=tolerance):
                 return True
             status = self._safe_call(get_arm_status) if callable(get_arm_status) else None
-            if status is not None and getattr(status.msg, "motion_status", None) == 0:
-                return bool(np.allclose(current, target, atol=tolerance))
+            motion_status = getattr(status.msg, "motion_status", None) if status is not None else None
+            if elapsed >= startup_grace_s and motion_status == 0:
+                stopped_count += 1
+                if stopped_count >= stationary_checks:
+                    max_error = float(np.max(np.abs(current - target)))
+                    log.warning(
+                        "[wait_for_motion] stopped before target. max_error=%.4f tolerance=%.4f current=%s target=%s",
+                        max_error,
+                        tolerance,
+                        current.round(4).tolist(),
+                        target.round(4).tolist(),
+                    )
+                    return False
+            elif motion_status != 0:
+                stopped_count = 0
             time.sleep(0.1)
+        result = self._safe_call(get_joint_angles) if callable(get_joint_angles) else None
+        if result is not None:
+            current = np.asarray(result.msg, dtype=float)
+            max_error = float(np.max(np.abs(current - target)))
+            log.warning(
+                "[wait_for_motion] timeout after %.2fs. max_error=%.4f tolerance=%.4f current=%s target=%s",
+                timeout,
+                max_error,
+                tolerance,
+                current.round(4).tolist(),
+                target.round(4).tolist(),
+            )
         return False
 
     def robot_stop(self, robot_arm: str) -> bool:
