@@ -360,6 +360,8 @@ class NeroDynamicsServer:
             "random_start_seed": int(config.get("random_start_seed", 42)),
             "random_start_center": config.get("random_start_center", []),
             "random_start_range": config.get("random_start_range", [0.0] * 7),
+            "random_start_min": config.get("random_start_min", []),
+            "random_start_max": config.get("random_start_max", []),
             "random_start_move_speed_percent": float(config.get("random_start_move_speed_percent", 20.0)),
             "random_start_timeout": float(config.get("random_start_timeout", 20.0)),
             "random_start_tolerance": float(config.get("random_start_tolerance", 0.05)),
@@ -1636,12 +1638,20 @@ class NeroDynamicsServer:
         self._write_json(paths["metadata_path"], metadata)
 
     def _sample_random_start(self, config: Dict[str, Any], robot_arm: str) -> np.ndarray:
-        center = config.get("random_start_center") or self._home_for_arm(robot_arm)
-        center = np.asarray(center, dtype=float).reshape(7)
-        span = np.asarray(config["random_start_range"], dtype=float).reshape(7)
         seed = int(config["random_start_seed"]) + int(config["episode_index"]) * 1000 + int(config.get("attempt_index", 0))
         rng = np.random.default_rng(seed)
-        q = center + rng.uniform(-span, span, size=7)
+
+        if config.get("random_start_min") and config.get("random_start_max"):
+            q_min = np.asarray(config["random_start_min"], dtype=float).reshape(7)
+            q_max = np.asarray(config["random_start_max"], dtype=float).reshape(7)
+            low = np.minimum(q_min, q_max)
+            high = np.maximum(q_min, q_max)
+            q = rng.uniform(low, high, size=7)
+        else:
+            center = config.get("random_start_center") or self._home_for_arm(robot_arm)
+            center = np.asarray(center, dtype=float).reshape(7)
+            span = np.asarray(config["random_start_range"], dtype=float).reshape(7)
+            q = center + rng.uniform(-span, span, size=7)
         return self._clip_to_joint_limits(q, robot_arm, margin=config["joint_limit_margin"])
 
     def _home_for_arm(self, robot_arm: str) -> list:
