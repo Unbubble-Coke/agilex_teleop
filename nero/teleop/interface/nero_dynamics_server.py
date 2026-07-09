@@ -383,6 +383,15 @@ class NeroDynamicsServer:
             "max_consecutive_invalid_samples": int(config.get("max_consecutive_invalid_samples", 20)),
             "failure_return_home": bool(config.get("failure_return_home", False)),
             "failure_cooldown_s": float(config.get("failure_cooldown_s", 1.0)),
+            "hold_after_episode": bool(config.get("hold_after_episode", True)),
+            "hold_after_failed_attempt": bool(config.get("hold_after_failed_attempt", True)),
+            "episode_hold_time": float(config.get("episode_hold_time", 0.5)),
+            "hold_command_repeat": int(config.get("hold_command_repeat", 3)),
+            "hold_command_period": float(config.get("hold_command_period", 0.05)),
+            "hold_settle_timeout": float(config.get("hold_settle_timeout", 2.0)),
+            "hold_position_delta_tolerance": float(config.get("hold_position_delta_tolerance", 0.003)),
+            "hold_stable_checks": int(config.get("hold_stable_checks", 5)),
+            "hold_finalize_with_move_j": bool(config.get("hold_finalize_with_move_j", True)),
             "amplitudes": config.get("amplitudes", [0.08] * 7),
             "frequencies": config.get("frequencies", [0.07, 0.11, 0.13, 0.17, 0.19, 0.23, 0.29]),
             "phases": config.get("phases", [0.0, 0.7, 1.4, 2.1, 2.8, 3.5, 4.2]),
@@ -467,6 +476,8 @@ class NeroDynamicsServer:
                     global_sample_start=global_sample_start,
                 )
                 if result["ok"]:
+                    if attempt_config["hold_after_episode"]:
+                        self._hold_current_position(robot_arm, robot, attempt_config)
                     samples = result["samples"]
                     metadata = result["metadata"]
                     self._commit_episode_samples(
@@ -486,6 +497,8 @@ class NeroDynamicsServer:
                     break
 
                 last_failure = result
+                if attempt_config["hold_after_failed_attempt"]:
+                    self._hold_current_position(robot_arm, robot, attempt_config)
                 self._record_failed_attempt(episode_paths, result["failure"])
                 with self._collection_lock:
                     self._status["failed_attempts"] += 1
@@ -547,7 +560,6 @@ class NeroDynamicsServer:
         attempt_index = int(config.get("attempt_index", 0))
         samples = []
         q_start = None
-        start_result: Dict[str, Any] = {}
 
         if config["random_start_enabled"]:
             start_result = self._sample_safe_random_start(config, robot_arm)
@@ -624,7 +636,6 @@ class NeroDynamicsServer:
             "episode_name": episode_paths["episode_name"],
             "initial_q": q0.tolist(),
             "random_start_q": q_start.tolist() if q_start is not None else None,
-            "random_start_tcp_z_report": _plain(start_result.get("tcp_z_report", {})),
             "trajectory_runtime": _plain(runtime.get("metadata", {})),
             "created_at": time.time(),
         }
@@ -1437,10 +1448,17 @@ class NeroDynamicsServer:
             ik_success.append(bool(command.get("ik_success", False)))
             ik_solve_time_ms.append(float(command.get("ik_solve_time_ms", np.nan)))
 
+        host_timestamp_start = np.asarray([s["host_timestamp_start"] for s in samples], dtype=float)
+        host_timestamp_end = np.asarray([s["host_timestamp_end"] for s in samples], dtype=float)
+        frame_timestamp = 0.5 * (host_timestamp_start + host_timestamp_end)
+        motor_timestamp = arr("motor", "timestamp")
+        motor_timestamp_median = np.nanmedian(motor_timestamp, axis=1)
+
         np.savez_compressed(
             path,
-            host_timestamp_start=np.asarray([s["host_timestamp_start"] for s in samples], dtype=float),
-            host_timestamp_end=np.asarray([s["host_timestamp_end"] for s in samples], dtype=float),
+            host_timestamp_start=host_timestamp_start,
+            host_timestamp_end=host_timestamp_end,
+            frame_timestamp=frame_timestamp,
             elapsed=np.asarray([s["elapsed"] for s in samples], dtype=float),
             episode_index=np.asarray([int(s.get("episode_index", 0)) for s in samples], dtype=np.int64),
             episode_sample_index=np.asarray([int(s.get("episode_sample_index", i)) for i, s in enumerate(samples)], dtype=np.int64),
@@ -1455,7 +1473,9 @@ class NeroDynamicsServer:
             motor_velocity=arr("motor", "velocity"),
             motor_torque=arr("motor", "torque"),
             motor_current=arr("motor", "current"),
-            motor_timestamp=arr("motor", "timestamp"),
+            motor_timestamp=motor_timestamp,
+            motor_timestamp_per_joint=motor_timestamp,
+            motor_timestamp_median=motor_timestamp_median,
             motor_hz=arr("motor", "hz"),
             motor_time_skew=arr("motor", "time_skew"),
             driver_vol=arr("driver", "vol"),
@@ -1836,6 +1856,78 @@ class NeroDynamicsServer:
             startup_grace_s=startup_grace_s,
             stationary_checks=stationary_checks,
         )
+
+    def _hold_current_position(self, robot_arm: str, robot, config: Dict[str, Any]) -> bool:
+        q_hold = self._read_current_joint_angles(robot, timeout=1.0)
+        if q_hold is None:
+            log.warning("[%s] failed to read current joint angles for episode hold", robot_arm)
+            return False
+
+        move_js = getattr(robot, "move_js", None)
+        move_j = getattr(robot, "move_j", None)
+        if not callable(move_js) and not callable(move_j):
+            log.warning("[%s] no move_js/move_j API is available for episode hold", robot_arm)
+            return False
+
+        period = max(0.02, float(config.get("hold_command_period", 0.05)))
+        min_hold_time = max(0.0, float(config.get("episode_hold_time", 0.5)))
+        settle_timeout = max(min_hold_time, float(config.get("hold_settle_timeout", 2.0)))
+        stable_tol = max(0.0, float(config.get("hold_position_delta_tolerance", 0.003)))
+        stable_checks_required = max(1, int(config.get("hold_stable_checks", 5)))
+        extra_repeats = max(0, int(config.get("hold_command_repeat", 3)))
+
+        stable_checks = 0
+        last_q = np.asarray(q_hold, dtype=float).reshape(7)
+        start_t = time.monotonic()
+        deadline = start_t + settle_timeout
+        commands_sent = 0
+        max_delta = float("inf")
+
+        while time.monotonic() < deadline:
+            current_q = self._read_current_joint_angles(robot, timeout=period)
+            if current_q is None:
+                break
+            current_q = np.asarray(current_q, dtype=float).reshape(7)
+            max_delta = float(np.max(np.abs(current_q - last_q)))
+            if max_delta <= stable_tol:
+                stable_checks += 1
+            else:
+                stable_checks = 0
+            q_hold = current_q
+
+            if callable(move_js):
+                move_js(q_hold.tolist())
+            else:
+                move_j(q_hold.tolist())
+            commands_sent += 1
+
+            if time.monotonic() - start_t >= min_hold_time and stable_checks >= stable_checks_required:
+                break
+            last_q = current_q
+            time.sleep(period)
+
+        q_hold_list = np.asarray(q_hold, dtype=float).reshape(7).tolist()
+        for _ in range(extra_repeats):
+            if callable(move_js):
+                move_js(q_hold_list)
+            else:
+                move_j(q_hold_list)
+            commands_sent += 1
+            time.sleep(period)
+
+        if config.get("hold_finalize_with_move_j", True) and callable(move_j):
+            move_j(q_hold_list)
+            commands_sent += 1
+
+        log.info(
+            "[%s] episode hold settled current_q=%s commands=%s stable_checks=%s max_delta=%.5f",
+            robot_arm,
+            np.asarray(q_hold_list).round(4).tolist(),
+            commands_sent,
+            stable_checks,
+            max_delta,
+        )
+        return True
 
     def _go_home(self, robot_arm: str, robot) -> bool:
         home = DEFAULT_LEFT_HOME if robot_arm == "left_robot" else DEFAULT_RIGHT_HOME
